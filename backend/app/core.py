@@ -119,12 +119,13 @@ def start_session(db: Session, contact: Contact, attempt: CallAttempt | None = N
     return session
 
 
-def add_turn(db: Session, session: CallSession, contact: Contact, text: str) -> dict:
+def add_turn(db: Session, session: CallSession, contact: Contact, text: str, reply_override: str | None = None) -> dict:
     if session.status == "ended":
         raise ValueError("Call already ended")
     turn = respond(session.workflow_state, text, session.language)
     db.add(CallEvent(session_id=session.id, kind="caller", text=text))
-    db.add(CallEvent(session_id=session.id, kind="assistant", text=turn.reply))
+    reply = reply_override if reply_override and not turn.action and not turn.outcome else turn.reply
+    db.add(CallEvent(session_id=session.id, kind="assistant", text=reply))
     if turn.action:
         db.add(CallEvent(session_id=session.id, kind="action", text=turn.action))
     session.workflow_state = turn.state
@@ -140,7 +141,7 @@ def add_turn(db: Session, session: CallSession, contact: Contact, text: str) -> 
             if attempt:
                 attempt.status = "completed"
     db.commit()
-    return {"reply": turn.reply, "state": turn.state, "outcome": turn.outcome, "action": turn.action}
+    return {"reply": reply, "state": turn.state, "outcome": turn.outcome, "action": turn.action}
 
 
 def metrics(db: Session) -> dict:

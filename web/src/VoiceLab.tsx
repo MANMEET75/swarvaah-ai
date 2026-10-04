@@ -33,6 +33,7 @@ export default function VoiceLab({ onSessionStarted }: { onSessionStarted: () =>
   const [phase, setPhase] = useState<'idle' | 'starting' | 'recording' | 'transcribing' | 'processing' | 'speaking'>('idle')
   const [error, setError] = useState('')
   const [hint, setHint] = useState('Start a test, then speak or type a reply.')
+  const [conversationMode, setConversationMode] = useState('deterministic')
   const recorder = useRef<MediaRecorder | null>(null)
   const stream = useRef<MediaStream | null>(null)
   const audio = useRef<HTMLAudioElement | null>(null)
@@ -42,6 +43,11 @@ export default function VoiceLab({ onSessionStarted }: { onSessionStarted: () =>
   const bottom = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => { bottom.current?.scrollIntoView({ behavior: 'smooth' }) }, [call?.events.length])
+  useEffect(() => {
+    void api<{ conversation_mode: string }>('/health', { method: 'GET' })
+      .then(status => setConversationMode(status.conversation_mode))
+      .catch(() => { /* API errors are surfaced when starting a session */ })
+  }, [])
   useEffect(() => () => {
     if (recordTimer.current) window.clearTimeout(recordTimer.current)
     if (recorder.current) recorder.current.onstop = null
@@ -127,13 +133,16 @@ export default function VoiceLab({ onSessionStarted }: { onSessionStarted: () =>
     setError('')
     setPhase('processing')
     try {
-      const result = await api<{ call: LabCall; reply: string }>(`/v1/test-calls/${call.id}/turn`, {
+      const result = await api<{ call: LabCall; reply: string; model: string | null }>(`/v1/test-calls/${call.id}/turn`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }),
       })
       setCall(result.call)
       setDraft('')
       setPhase('idle')
-      setHint(result.call.status === 'ended' ? 'Conversation completed. Start a new test to try another path.' : 'Reply recorded. Continue the conversation.')
+      setHint(result.call.status === 'ended' ? 'Conversation completed. Start a new test to try another path.'
+        : result.model ? 'Sarvam AI replied using the conversation history.'
+        : conversationMode === 'sarvam' ? 'The bounded workflow replied; continue or try an open-ended question.'
+        : 'Reply recorded. Continue the conversation.')
       await play(result.reply, call.language)
     } catch (exc) {
       setPhase('idle')
@@ -205,7 +214,7 @@ export default function VoiceLab({ onSessionStarted }: { onSessionStarted: () =>
           <label className="field full">Language<select value={form.language} onChange={e => setForm({ ...form, language: e.target.value })}><option value="hi-IN">Hindi / Hinglish</option><option value="en-IN">English</option></select></label>
         </div>
         <button className="primary-button wide" disabled={!['idle', 'speaking'].includes(phase) || !form.name.trim() || !form.reminder_label.trim()} onClick={() => void start()}>{phase === 'starting' ? 'Starting…' : call ? 'Start new conversation' : 'Start conversation'} <span>↗</span></button>
-        <div className="lab-provider"><span className="lab-provider-dot"/><div><strong>Speech powered by Sarvam</strong><small>Saaras v4 transcription · Bulbul v3 / Priya playback</small></div></div>
+        <div className="lab-provider"><span className="lab-provider-dot"/><div><strong>{conversationMode === 'sarvam' ? 'AI conversation enabled' : 'Deterministic conversation'}</strong><small>{conversationMode === 'sarvam' ? 'Sarvam 105B Conversations · Saaras v4 · Bulbul v3 / Priya' : 'Saaras v4 transcription · Bulbul v3 / Priya playback'}</small></div></div>
         <p className="lab-note">Use fictional details. Microphone audio is sent to Sarvam for transcription; it is not saved in the call record. You can always type instead.</p>
       </div>
       <div className="panel conversation-panel">
@@ -219,6 +228,6 @@ export default function VoiceLab({ onSessionStarted }: { onSessionStarted: () =>
         <div className="composer"><button type="button" aria-label={phase === 'recording' ? 'Stop recording' : 'Record reply'} className={`mic-button ${phase === 'recording' ? 'listening' : ''}`} onClick={() => void record()} disabled={!call || call.status === 'ended' || ['starting', 'transcribing', 'processing'].includes(phase)}>{phase === 'recording' ? '■' : '●'}</button><input value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void send() }} placeholder={phase === 'recording' ? 'Listening…' : phase === 'transcribing' ? 'Transcribing…' : 'Type or record your reply'} disabled={!call || call.status === 'ended' || phase === 'processing'}/><button type="button" className="send-button" onClick={() => void send()} disabled={!call || !draft.trim() || call.status === 'ended' || phase === 'processing'}>{phase === 'processing' ? '…' : '➜'}</button></div>
       </div>
     </div>
-    <div className="lab-presets"><span>TRY A RESPONSE</span>{['Yes, confirm it', 'Can we reschedule?', 'I want to speak to a person', 'Please stop calling me'].map(text => <button key={text} onClick={() => setDraft(text)} disabled={!call || call.status === 'ended'}>{text}</button>)}</div>
+    <div className="lab-presets"><span>TRY A RESPONSE</span>{['What is this reminder about?', 'Can you explain it?', 'Yes, confirm it', 'Can we reschedule?', 'Please stop calling me'].map(text => <button key={text} onClick={() => setDraft(text)} disabled={!call || call.status === 'ended'}>{text}</button>)}</div>
   </div>
 }

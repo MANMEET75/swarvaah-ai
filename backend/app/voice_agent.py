@@ -1,4 +1,4 @@
-"""Exotel media gateway with a bounded, deterministic reminder conversation.
+"""Exotel media gateway with a bounded reminder conversation.
 
 Run as a separate ASGI service. Import Pipecat lazily so the control API remains
 usable without the optional voice dependencies or external provider accounts.
@@ -13,7 +13,8 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from sqlalchemy import select
 
 from .config import settings
-from .core import add_turn, start_session
+from .core import start_session
+from .conversation import add_conversation_turn
 from .db import SessionLocal
 from .models import CallAttempt, CallEvent, CallSession, Contact
 
@@ -95,7 +96,7 @@ async def exotel_stream(websocket: WebSocket) -> None:
                         call = db.get(CallSession, session_id)
                         person = db.get(Contact, call.contact_id) if call else None
                         if call and person and call.status != "ended":
-                            turn = add_turn(db, call, person, frame.text)
+                            turn = await add_conversation_turn(db, call, person, frame.text)
                             await self.push_frame(TTSSpeakFrame(turn["reply"]))
                     return
                 if not isinstance(frame, TextFrame):

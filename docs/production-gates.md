@@ -10,6 +10,7 @@ This repository is a runnable local proof and a phone-pilot integration, not a 5
 6. **Reliable work dispatch:** move from a database-polled outbox to a durable delivery queue with explicit acknowledgement, visibility timeout, dead-letter queue, and replay controls. SQS is planned but not wired into this revision.
 7. **Budget and billing:** enforce an estimated reservation before dial, reconcile actual Exotel/STT/TTS/model/compute cost, stop a campaign at its cap, and report cost per successful reminder. The current budget field is informational.
 8. **High availability:** tested migration process, multi-AZ database and worker deployment, autoscaling, backups with restore drills, tracing, SLO alerts, load/soak/failure tests, and a kill switch exercised under load.
+9. **AI conversation quality:** evaluate `sarvam-105b-conversations` on real consented pilot phrasing, code-switching, interruptions, prompt injection, false claims that an action occurred, and correct fallback behavior. Keep business changes behind validated workflow actions. The current chat request is non-streaming and has not met a phone latency target; measure model time, first audible response, and total cost before expanding traffic.
 
 ## Phone pilot checklist
 

@@ -23,6 +23,9 @@ services:
       CALL_MODE: simulation
       DATABASE_URL: postgresql+psycopg://swarvaah:local-only-password@db:5432/swarvaah
       REDIS_URL: redis://redis:6379/0
+      SARVAM_API_KEY: ${SARVAM_API_KEY:-}
+      CONVERSATION_MODE: ${CONVERSATION_MODE:-deterministic}
+      SARVAM_CHAT_MODEL: ${SARVAM_CHAT_MODEL:-sarvam-105b-conversations}
     ports: ["8000:8000"]
     depends_on:
       db: {condition: service_healthy}

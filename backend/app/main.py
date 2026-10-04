@@ -10,7 +10,8 @@ from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from .config import settings
-from .core import add_turn, import_csv, launch_campaign, masked_phone, metrics, start_session
+from .core import import_csv, launch_campaign, masked_phone, metrics, start_session
+from .conversation import add_conversation_turn
 from .db import Base, engine, get_db
 from .models import AuditEvent, CallAttempt, CallEvent, CallSession, Campaign, Contact
 from .exotel import normalize_status
@@ -81,7 +82,9 @@ def campaign_json(c: Campaign) -> dict:
 
 @app.get("/health")
 def health() -> dict:
-    return {"ok": True, "mode": settings.mode, "call_mode": settings.call_mode}
+    return {"ok": True, "mode": settings.mode, "call_mode": settings.call_mode,
+            "conversation_mode": settings.conversation_mode,
+            "conversation_model": settings.sarvam_chat_model if settings.conversation_mode == "sarvam" else None}
 
 
 @app.get("/v1/overview", dependencies=[Depends(authorize)])
@@ -216,7 +219,7 @@ def call_json(db: Session, call: CallSession) -> dict:
 
 
 @app.post("/v1/test-calls/{session_id}/turn", dependencies=[Depends(authorize)])
-def test_turn(session_id: str, data: TurnIn, db: Session = Depends(get_db)) -> dict:
+async def test_turn(session_id: str, data: TurnIn, db: Session = Depends(get_db)) -> dict:
     if settings.mode != "demo":
         raise HTTPException(403, "Browser simulation is enabled only in demo mode")
     call = db.get(CallSession, session_id)
@@ -226,7 +229,7 @@ def test_turn(session_id: str, data: TurnIn, db: Session = Depends(get_db)) -> d
     if not contact:
         raise HTTPException(404, "Test contact not found")
     try:
-        result = add_turn(db, call, contact, data.text)
+        result = await add_conversation_turn(db, call, contact, data.text)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     return {**result, "call": call_json(db, call)}

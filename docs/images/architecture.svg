@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1400" height="1100" viewBox="0 0 1400 1100" role="img" aria-labelledby="title desc">
   <title id="title">Swarvaah AI architecture, Sarvam models, and scale controls</title>
-  <desc id="desc">The current local Voice lab sends microphone audio through FastAPI to Sarvam Saaras v4 REST, reviews a transcript, runs a deterministic reminder workflow, and speaks with Bulbul v3 Priya. The outbound phone path uses campaign controls, PostgreSQL outbox, a dial worker, Exotel, a public WebSocket media gateway, Pipecat, Saaras v3 Realtime, and Bulbul v3. Production scaling to 50,000 attempts per day is a target requiring provider capacity and load tests.</desc>
+  <desc id="desc">The local Voice lab sends microphone audio to Sarvam Saaras v4 REST, reviews a transcript, uses optional Sarvam 105B Conversations for open dialogue, keeps business actions in a deterministic workflow, and speaks with Bulbul v3 Priya. The outbound phone path uses campaign controls, PostgreSQL outbox, a dial worker, Exotel, a public WebSocket media gateway, Pipecat, Saaras v3 Realtime, the same optional conversation layer, and Bulbul v3. Production scaling to 50,000 attempts per day is a target requiring provider capacity and load tests.</desc>
   <defs>
     <style>
       text{font-family:Inter,Arial,sans-serif;fill:#1b2541}
@@ -23,7 +23,7 @@
   <path d="M60 80 C69 64 77 96 87 80 C92 73 98 73 103 76" stroke="#fff" stroke-width="4" fill="none" stroke-linecap="round"/>
   <text x="128" y="68" class="eyebrow">SWARVAAH AI / SYSTEM DESIGN</text>
   <text x="128" y="108" class="heading">From voice lab to high-volume calling</text>
-  <text x="50" y="147" class="sub">A deterministic reminder workflow with Sarvam speech. Local testing works today; the phone-scale path needs a controlled pilot.</text>
+  <text x="50" y="147" class="sub">Sarvam speech and optional free-text AI dialogue, with bounded reminder actions. The phone-scale path still needs a pilot.</text>
 
   <!-- Current local experience -->
   <rect x="48" y="178" width="1304" height="280" rx="22" fill="#fff" stroke="#e3e8f4" filter="url(#shadow)"/>
@@ -52,9 +52,9 @@
   <rect x="1022" y="274" width="300" height="130" rx="14" fill="#f5f7fe" stroke="#dce3f6"/>
   <text x="1042" y="311" class="label">DECISION + OUTPUT</text>
   <text x="1042" y="341" class="boxhead">Reminder workflow</text>
-  <text x="1042" y="369" class="boxbody">deterministic result →</text>
+  <text x="1042" y="369" class="boxbody">105B chat + bounded action</text>
   <text x="1042" y="389" class="boxbody">Bulbul v3 · Priya audio</text>
-  <text x="78" y="432" class="small">The reply returns through FastAPI to the browser. Accepted text and outcome are saved; mic audio is not. No LLM makes reminder decisions.</text>
+  <text x="78" y="432" class="small">Optional Sarvam 105B Conversations answers free text. Only the workflow commits actions. Accepted text is saved; mic audio is not.</text>
 
   <!-- Phone path -->
   <rect x="48" y="479" width="1304" height="350" rx="22" fill="#fff" stroke="#e3e8f4" filter="url(#shadow)"/>
@@ -89,7 +89,7 @@
   <path d="M1212 673 V706" class="arrow"/>
   <rect x="78" y="715" width="1244" height="83" rx="13" fill="#eef1ff" stroke="#cbd5fa"/>
   <text x="100" y="748" class="label">LIVE PIPELINE INSIDE THE MEDIA GATEWAY</text>
-  <text x="100" y="779" class="boxhead">Saaras v3 Realtime  →  deterministic reminder workflow  →  Bulbul v3 / Priya  →  Exotel playback</text>
+  <text x="100" y="779" class="boxhead">Saaras v3 Realtime  →  105B chat + bounded actions  →  Bulbul v3 / Priya  →  Exotel playback</text>
 
   <!-- Scale path -->
   <rect x="48" y="850" width="1304" height="205" rx="22" fill="#fff" stroke="#e3e8f4" filter="url(#shadow)"/>

@@ -21,6 +21,8 @@ class Settings:
     exotel_stream_url: str = os.getenv("EXOTEL_STREAM_URL", "")
     exotel_callback_secret: str = os.getenv("EXOTEL_CALLBACK_SECRET", "")
     sarvam_api_key: str = os.getenv("SARVAM_API_KEY", "")
+    conversation_mode: str = os.getenv("CONVERSATION_MODE", "deterministic")
+    sarvam_chat_model: str = os.getenv("SARVAM_CHAT_MODEL", "sarvam-105b-conversations")
     max_global_concurrent: int = int(os.getenv("MAX_GLOBAL_CONCURRENT", "20"))
     max_dials_per_minute: int = int(os.getenv("MAX_DIALS_PER_MINUTE", "10"))
     live_dial_enabled: bool = os.getenv("LIVE_DIAL_ENABLED", "false").lower() == "true"
@@ -29,6 +31,13 @@ class Settings:
 
 
 settings = Settings()
+
+if settings.conversation_mode not in {"deterministic", "sarvam"}:
+    raise RuntimeError("CONVERSATION_MODE must be deterministic or sarvam")
+if settings.conversation_mode == "sarvam" and not settings.sarvam_api_key:
+    raise RuntimeError("SARVAM_API_KEY is required for Sarvam conversation mode")
+if settings.conversation_mode == "sarvam" and settings.sarvam_chat_model not in {"sarvam-105b-conversations", "sarvam-105b"}:
+    raise RuntimeError("SARVAM_CHAT_MODEL must be a supported Sarvam V1 model")
 
 if settings.mode != "demo":
     if settings.admin_api_key == "change-this-before-exposing-the-api":

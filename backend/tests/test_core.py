@@ -1,4 +1,6 @@
 import io
+from types import SimpleNamespace
+import httpx
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, select
@@ -11,7 +13,9 @@ from app.models import CallAttempt, Contact, OutboxEvent
 from app.voice_agent import stream_signature
 from app.exotel import ExotelError, extract_call_sid
 from app import worker
+from app import conversation
 from app import main as main_module
+from app.workflow import respond
 
 
 engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
@@ -99,3 +103,48 @@ def test_voice_lab_keeps_provider_audio_out_of_call_history(monkeypatch):
     call = client.get(f"/v1/calls/{session['id']}").json()
     assert len(call["events"]) == initial_events
     assert client.post("/v1/voice-lab/speak", json={"text": "x", "language": "fr-FR"}).status_code == 422
+
+
+def test_ai_conversation_keeps_context_and_actions_in_workflow(monkeypatch):
+    monkeypatch.setattr(conversation, "settings", SimpleNamespace(
+        conversation_mode="sarvam", sarvam_chat_model="sarvam-105b-conversations", sarvam_api_key="test"
+    ))
+    prompts = []
+
+    async def fake_model_reply(messages):
+        prompts.append(messages)
+        return "This is a reminder for your appointment. What would you like to know?"
+
+    monkeypatch.setattr(conversation, "_model_reply", fake_model_reply)
+    call = client.post("/v1/test-calls", json={"language": "en-IN"}).json()
+    first = client.post(f"/v1/test-calls/{call['id']}/turn", json={"text": "What is this about?"}).json()
+    assert first["model"] == "sarvam-105b-conversations"
+    assert first["call"]["status"] == "connected"
+    second = client.post(f"/v1/test-calls/{call['id']}/turn", json={"text": "Tell me more"}).json()
+    assert any(message["content"] == "What is this about?" for message in prompts[-1])
+    assert any(message["content"] == first["reply"] for message in prompts[-1])
+    assert second["call"]["status"] == "connected"
+    confirmed = client.post(f"/v1/test-calls/{call['id']}/turn", json={"text": "Yes, confirm it"}).json()
+    assert confirmed["outcome"] == "confirmed"
+    assert confirmed["model"] is None
+    assert len(prompts) == 2
+    assert respond("intro", "Yesterday I said yes").outcome is None
+    assert respond("intro", "What does reschedule mean?").outcome is None
+    assert respond("intro", "हाँ", "hi-IN").outcome == "confirmed"
+    assert respond("intro", "Yeah I will watch serials at seven").outcome == "confirmed"
+
+
+def test_ai_unavailable_uses_bounded_reply(monkeypatch):
+    monkeypatch.setattr(conversation, "settings", SimpleNamespace(
+        conversation_mode="sarvam", sarvam_chat_model="sarvam-105b-conversations", sarvam_api_key="test"
+    ))
+
+    async def unavailable(_messages):
+        raise httpx.TimeoutException("synthetic timeout")
+
+    monkeypatch.setattr(conversation, "_model_reply", unavailable)
+    call = client.post("/v1/test-calls", json={"language": "en-IN"}).json()
+    result = client.post(f"/v1/test-calls/{call['id']}/turn", json={"text": "Tell me more"}).json()
+    assert result["model"] is None
+    assert result["call"]["status"] == "connected"
+    assert result["reply"].endswith("?")

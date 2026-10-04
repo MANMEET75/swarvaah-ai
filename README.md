@@ -9,7 +9,7 @@
 - Responsive React/TypeScript operator console: overview, contacts, campaign drafts, browser voice lab, live call list, review timeline, and audit view.
 - FastAPI `/v1` control API with CSV validation, contact deduplication and suppression, campaign launch/pause/stop, test conversations, call search, and outcome correction.
 - PostgreSQL backed contacts, call attempts, sessions, events, audit trail, and transactional outbox; Redis dial rate limit in the worker.
-- Deterministic service reminder dialogue with confirmation, decline, reschedule request, human callback request, and durable opt-out.
+- Optional multi-turn free-text dialogue through Sarvam `sarvam-105b-conversations`. The deterministic workflow still owns confirmation, decline, reschedule request, human callback request, and durable opt-out.
 - Exotel Connect Voice AI dial adapter and WebSocket media gateway using Pipecat, Sarvam real time STT, and Bulbul v3 TTS. This path requires a controlled phone pilot.
 - Direction-neutral `CallSession` schema; inbound number acquisition and routing remain a later release.
 
@@ -27,17 +27,17 @@ The [editable architecture SVG](docs/images/architecture.svg) is included alongs
 
 | Path | Speech recognition | Speech output | Current status |
 | --- | --- | --- | --- |
-| Browser Voice lab | Sarvam **Saaras v4 REST**, `codemix` mode. A recorded clip is transcribed and the operator reviews the text before sending it. | Sarvam **Bulbul v3**, `priya` voice. The browser plays audio returned through FastAPI. | The REST endpoints were tested with synthetic English audio and a Hindi greeting. Browser microphone behavior still depends on local permission and browser support. |
+| Browser Voice lab | Sarvam **Saaras v4 REST**, `codemix` mode. A recorded clip is transcribed and the operator reviews the text before sending it. | Sarvam **Bulbul v3**, `priya` voice. The browser plays audio returned through FastAPI. | The REST endpoints and two open-ended Sarvam chat turns were tested with synthetic data. Browser microphone behavior still depends on local permission and browser support. |
 | Exotel phone gateway | Pipecat `SarvamRealtimeSTTService` defaults to **Saaras v3 Realtime**; configured for `auto` language, `codemix`, and `fast` stream type. | Pipecat `SarvamTTSService` explicitly selects **Bulbul v3**, `priya`. | Code is present; real Exotel media and end-to-end latency have not been validated. |
 
-The current reminder decisions are deterministic: confirmation, decline, reschedule request, human callback, and opt-out are selected by the workflow, not an LLM. The backend records the accepted text turn and action before speaking a confirmation. The Exotel adapter signs each attempt's stream URL, and the gateway rejects unknown, suppressed, or repeated attempts.
+With `CONVERSATION_MODE=sarvam`, both paths use **Sarvam `sarvam-105b-conversations`** for open-ended, contextual replies to non-action turns. The last six exchanges are sent with the known reminder details; the model is told not to invent customer data or claim an action occurred. An explicit confirmation, decline, reschedule request, human callback, or opt-out is handled by the deterministic workflow and recorded by the backend. The model never executes those actions. If the model is unavailable, the workflow provides a bounded fallback reply. `CONVERSATION_MODE=deterministic` disables chat-model calls. The Exotel adapter signs each attempt's stream URL, and the gateway rejects unknown, suppressed, or repeated attempts.
 
 For scale, the control plane records contacts, campaigns, attempts, and an outbox in PostgreSQL. A worker checks consent, suppression, calling window, concurrency, and Redis dial rate before requesting an Exotel call. The **50,000 attempts/day figure is a production target, not a measured result**. SQS-backed distributed consumers, autoscaled API/media workers, reserved Exotel and Sarvam capacity, cost enforcement, and load/failure testing remain production work; see [Capacity and cost](#capacity-and-cost) and [production gates](docs/production-gates.md).
 
 ## Prerequisites
 
 - Docker Engine with Compose **or** Python 3.11–3.14, Node.js 22+, PostgreSQL 17, and Redis 7.
-- No Exotel, phone number, or paid account is needed for the local text and campaign simulation. Add `SARVAM_API_KEY` to the ignored local `.env` to use Sarvam speech in Voice lab.
+- No Exotel, phone number, or paid account is needed for the local text and campaign simulation. Add `SARVAM_API_KEY` to the ignored local `.env` to use Sarvam speech and chat in Voice lab.
 
 ## Run the local proof
 
@@ -49,7 +49,15 @@ docker compose up --build
 
 Open [http://localhost:5173](http://localhost:5173). Choose **Load sample workspace**, create a draft campaign, use **Voice lab** to test responses, then launch a campaign to simulate dial attempts. The worker processes queued attempts and shows them in **Live calls**. Sample data is synthetic; no telephone call is placed.
 
-For a spoken Voice lab test, place your Sarvam key in `.env` as `SARVAM_API_KEY=...` and restart the API. In **Voice lab**, start a synthetic conversation, listen to the greeting, then press the microphone to record up to 15 seconds. Press it again to stop, review the Saaras v4 transcript, and press Send. Bulbul v3 reads the reply aloud. You can type a reply at any time. Browser microphone permission is required on localhost; the API sends audio to Sarvam in memory and does not retain the recording. Voice lab requires network access to Sarvam and consumes a small amount of credit. A phone call still requires the separate Exotel media gateway and public WSS endpoint.
+For a spoken AI conversation, place your Sarvam key in `.env`, set `CONVERSATION_MODE=sarvam`, and restart the API:
+
+```dotenv
+SARVAM_API_KEY=your_key_here
+CONVERSATION_MODE=sarvam
+SARVAM_CHAT_MODEL=sarvam-105b-conversations
+```
+
+In **Voice lab**, start a synthetic conversation, listen to the greeting, then press the microphone to record up to 15 seconds. Press it again to stop, review the Saaras v4 transcript, and press Send. Ask an open question such as “What is this reminder about?” and follow up with another question; the chat model uses recent turns to respond, and Bulbul v3 reads its answer aloud. You can type at any time. Explicit business actions still use the bounded workflow. Browser microphone permission is required on localhost; the API sends audio to Sarvam in memory and does not retain the recording. Sarvam speech and chat consume credits. A phone call still requires the separate Exotel media gateway and public WSS endpoint.
 
 To stop: `docker compose down`. To erase the local database: `docker compose down -v`.
 
@@ -101,7 +109,7 @@ Do not upload real contact information into the demo. Import returns accepted, u
 4. Copy `.env.example` to `.env` in the repository root and fill it locally. Set `SWARVAAH_MODE=production`, `CALL_MODE=exotel`, `DATABASE_URL`, `ADMIN_API_KEY`, `PUBLIC_BASE_URL`, `EXOTEL_*`, `SARVAM_API_KEY`, `REDIS_URL`, and conservative capacity limits. Set `EXOTEL_STREAM_URL` to `wss://YOUR_HOST/ws/exotel`. Never commit `.env` or paste provider keys into chat. Start `uvicorn app.voice_agent:app` as a **separate** service from `uvicorn app.main:app`.
 5. Use only opted-in team numbers. Validate caller ID, call recording policy, opt-out, disconnection, callback reconciliation, barge-in, and real 8 kHz sound quality. Set `LIVE_DIAL_ENABLED=true` only for this controlled test.
 
-The pilot is deliberately gated. There is no live phone score or measured latency claim yet. See [production gates](docs/production-gates.md) before any customer pilot.
+For AI dialogue on the phone path, set `CONVERSATION_MODE=sarvam` on the gateway as well as the API. The same conversation service is used after realtime transcription. Model calls are currently non-streaming and can add several seconds; the end-to-end latency target has **not** been met or measured. Streaming responses, interruption handling, action-quality evaluation, and cost limits must be validated in the controlled pilot. See [production gates](docs/production-gates.md) before any customer pilot.
 
 ## Configuration
 
@@ -115,7 +123,7 @@ cd ../web && npm ci && npm run build
 docker compose config --quiet
 ```
 
-Tests cover CSV admission/deduplication, transactional campaign queueing, opt-out, and invalid imports. The phone path remains unverified until a provider pilot. CI runs Python tests, TypeScript build, and a secret scan.
+Tests cover CSV admission/deduplication, transactional campaign queueing, opt-out, invalid imports, and multi-turn AI dialogue with mocked model responses. The real Sarvam chat endpoint was exercised with two synthetic local Voice lab turns. The phone path remains unverified until a provider pilot. CI runs Python tests, TypeScript build, and a secret scan.
 
 ## Capacity and cost
 
