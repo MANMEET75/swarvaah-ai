@@ -13,25 +13,26 @@
 - Exotel Connect Voice AI dial adapter and WebSocket media gateway using Pipecat, Sarvam real time STT, and Bulbul v3 TTS. This path requires a controlled phone pilot.
 - Direction-neutral `CallSession` schema; inbound number acquisition and routing remain a later release.
 
+## Product preview
+
+![The white Swarvaah AI Voice lab showing a sample reminder conversation, scenario controls, and Sarvam voice playback](docs/images/voice-lab-2026-10-04.png)
+
+The screenshot shows the local Voice lab. It is a browser rehearsal, so the conversation shown did not place a phone call.
+
 ## Architecture
 
-```mermaid
-flowchart LR
-  UI[React console] --> API[FastAPI control API]
-  API --> PG[(PostgreSQL)]
-  PG --> O[Transactional outbox]
-  O --> W[Dial worker]
-  W --> R[(Redis rate limit)]
-  W --> EX[Exotel outbound]
-  EX <-->|8 kHz PCM WebSocket| GW[Python media gateway]
-  GW --> STT[Sarvam realtime STT]
-  STT --> WF[Bounded reminder workflow]
-  WF --> TTS[Sarvam Bulbul v3 TTS]
-  TTS --> GW
-  GW --> PG
-```
+![Swarvaah AI architecture showing the local Voice lab, the outbound Exotel and Pipecat phone path, Sarvam speech models, and controls for a 50,000 attempts per day target](docs/images/architecture.png)
 
-The conversation logic does not need an LLM to take action. It selects a known outcome and records the action before speaking a confirmation. This keeps the browser proof usable without model credentials. The Exotel adapter signs the per-attempt stream URL and the media gateway rejects unknown, suppressed, or repeated attempts.
+The [editable architecture SVG](docs/images/architecture.svg) is included alongside the rendered image. The diagram separates the working local Voice lab from the outbound phone path, which still needs a controlled provider pilot.
+
+| Path | Speech recognition | Speech output | Current status |
+| --- | --- | --- | --- |
+| Browser Voice lab | Sarvam **Saaras v4 REST**, `codemix` mode. A recorded clip is transcribed and the operator reviews the text before sending it. | Sarvam **Bulbul v3**, `priya` voice. The browser plays audio returned through FastAPI. | The REST endpoints were tested with synthetic English audio and a Hindi greeting. Browser microphone behavior still depends on local permission and browser support. |
+| Exotel phone gateway | Pipecat `SarvamRealtimeSTTService` defaults to **Saaras v3 Realtime**; configured for `auto` language, `codemix`, and `fast` stream type. | Pipecat `SarvamTTSService` explicitly selects **Bulbul v3**, `priya`. | Code is present; real Exotel media and end-to-end latency have not been validated. |
+
+The current reminder decisions are deterministic: confirmation, decline, reschedule request, human callback, and opt-out are selected by the workflow, not an LLM. The backend records the accepted text turn and action before speaking a confirmation. The Exotel adapter signs each attempt's stream URL, and the gateway rejects unknown, suppressed, or repeated attempts.
+
+For scale, the control plane records contacts, campaigns, attempts, and an outbox in PostgreSQL. A worker checks consent, suppression, calling window, concurrency, and Redis dial rate before requesting an Exotel call. The **50,000 attempts/day figure is a production target, not a measured result**. SQS-backed distributed consumers, autoscaled API/media workers, reserved Exotel and Sarvam capacity, cost enforcement, and load/failure testing remain production work; see [Capacity and cost](#capacity-and-cost) and [production gates](docs/production-gates.md).
 
 ## Prerequisites
 
@@ -130,6 +131,7 @@ backend/tests/     API and domain tests
 web/src/           Operator console
 infra/terraform/   Infrastructure starter configuration
 docs/              Architecture, operations and production gates
+docs/images/       Voice lab screenshot and architecture image/source
 compose.yaml       Local demo stack
 ```
 
