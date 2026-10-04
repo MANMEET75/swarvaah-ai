@@ -61,11 +61,15 @@ async def _model_reply(messages: list[dict[str, str]]) -> str:
     return reply
 
 
-async def add_conversation_turn(db: Session, session: CallSession, contact: Contact, text: str) -> dict:
+async def add_conversation_turn(db: Session, session: CallSession, contact: Contact, text: str,
+                                mode_override: str | None = None) -> dict:
     """Use Sarvam for non-action turns; keep durable actions in the deterministic workflow."""
     if session.status == "ended":
         raise ValueError("Call already ended")
-    if settings.conversation_mode != "sarvam":
+    mode = mode_override or settings.conversation_mode
+    if mode == "sarvam" and not settings.sarvam_api_key:
+        raise ValueError("SARVAM_API_KEY is required for AI conversation")
+    if mode != "sarvam":
         return {**add_turn(db, session, contact, text), "model": None}
     decision = respond(session.workflow_state, text, session.language)
     if decision.action or decision.outcome:

@@ -33,7 +33,8 @@ export default function VoiceLab({ onSessionStarted }: { onSessionStarted: () =>
   const [phase, setPhase] = useState<'idle' | 'starting' | 'recording' | 'transcribing' | 'processing' | 'speaking'>('idle')
   const [error, setError] = useState('')
   const [hint, setHint] = useState('Start a test, then speak or type a reply.')
-  const [conversationMode, setConversationMode] = useState('deterministic')
+  const [aiEnabled, setAiEnabled] = useState(false)
+  const [aiAvailable, setAiAvailable] = useState(false)
   const recorder = useRef<MediaRecorder | null>(null)
   const stream = useRef<MediaStream | null>(null)
   const audio = useRef<HTMLAudioElement | null>(null)
@@ -44,10 +45,20 @@ export default function VoiceLab({ onSessionStarted }: { onSessionStarted: () =>
 
   useEffect(() => { bottom.current?.scrollIntoView({ behavior: 'smooth' }) }, [call?.events.length])
   useEffect(() => {
-    void api<{ conversation_mode: string }>('/health', { method: 'GET' })
-      .then(status => setConversationMode(status.conversation_mode))
+    void api<{ conversation_mode: string; ai_conversation_available: boolean }>('/health', { method: 'GET' })
+      .then(status => {
+        setAiAvailable(status.ai_conversation_available)
+        const saved = window.localStorage.getItem('swarvaah.voiceLab.aiEnabled')
+        setAiEnabled(status.ai_conversation_available && (saved === null ? status.conversation_mode === 'sarvam' : saved === 'true'))
+      })
       .catch(() => { /* API errors are surfaced when starting a session */ })
   }, [])
+  const toggleAi = () => {
+    const next = !aiEnabled
+    setAiEnabled(next)
+    window.localStorage.setItem('swarvaah.voiceLab.aiEnabled', String(next))
+    setHint(next ? 'AI conversation will answer the next open-ended reply.' : 'Deterministic workflow will answer the next reply.')
+  }
   useEffect(() => () => {
     if (recordTimer.current) window.clearTimeout(recordTimer.current)
     if (recorder.current) recorder.current.onstop = null
@@ -134,14 +145,15 @@ export default function VoiceLab({ onSessionStarted }: { onSessionStarted: () =>
     setPhase('processing')
     try {
       const result = await api<{ call: LabCall; reply: string; model: string | null }>(`/v1/test-calls/${call.id}/turn`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, conversation_mode: aiEnabled ? 'sarvam' : 'deterministic' }),
       })
       setCall(result.call)
       setDraft('')
       setPhase('idle')
       setHint(result.call.status === 'ended' ? 'Conversation completed. Start a new test to try another path.'
         : result.model ? 'Sarvam AI replied using the conversation history.'
-        : conversationMode === 'sarvam' ? 'The bounded workflow replied; continue or try an open-ended question.'
+        : aiEnabled ? 'The bounded workflow replied; continue or try an open-ended question.'
         : 'Reply recorded. Continue the conversation.')
       await play(result.reply, call.language)
     } catch (exc) {
@@ -214,7 +226,8 @@ export default function VoiceLab({ onSessionStarted }: { onSessionStarted: () =>
           <label className="field full">Language<select value={form.language} onChange={e => setForm({ ...form, language: e.target.value })}><option value="hi-IN">Hindi / Hinglish</option><option value="en-IN">English</option></select></label>
         </div>
         <button className="primary-button wide" disabled={!['idle', 'speaking'].includes(phase) || !form.name.trim() || !form.reminder_label.trim()} onClick={() => void start()}>{phase === 'starting' ? 'Starting…' : call ? 'Start new conversation' : 'Start conversation'} <span>↗</span></button>
-        <div className="lab-provider"><span className="lab-provider-dot"/><div><strong>{conversationMode === 'sarvam' ? 'AI conversation enabled' : 'Deterministic conversation'}</strong><small>{conversationMode === 'sarvam' ? 'Sarvam 105B Conversations · Saaras v4 · Bulbul v3 / Priya' : 'Saaras v4 transcription · Bulbul v3 / Priya playback'}</small></div></div>
+        <div className="lab-provider"><span className="lab-provider-dot"/><div className="lab-provider-copy"><strong>AI conversation {aiEnabled ? 'enabled' : 'off'}</strong><small>{aiEnabled ? 'Sarvam 105B answers open questions' : 'Bounded reminder workflow answers'}</small></div><button type="button" role="switch" aria-label="Enable AI conversation" aria-checked={aiEnabled} className={`lab-ai-switch ${aiEnabled ? 'on' : ''}`} onClick={toggleAi} disabled={!aiAvailable || phase === 'processing'}><span/></button></div>
+        <p className="lab-switch-note">{aiAvailable ? 'Applies to your next reply. Saaras transcription and Bulbul playback work in either mode.' : 'Add SARVAM_API_KEY to enable AI conversation. Speech needs the same key.'}</p>
         <p className="lab-note">Use fictional details. Microphone audio is sent to Sarvam for transcription; it is not saved in the call record. You can always type instead.</p>
       </div>
       <div className="panel conversation-panel">

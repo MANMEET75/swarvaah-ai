@@ -2,6 +2,7 @@ import hmac
 import json
 from datetime import datetime
 from contextlib import asynccontextmanager
+from typing import Literal
 
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -60,6 +61,7 @@ class TestCallIn(BaseModel):
 
 class TurnIn(BaseModel):
     text: str = Field(min_length=1, max_length=1000)
+    conversation_mode: Literal["sarvam", "deterministic"] | None = None
 
 
 class SpeakIn(BaseModel):
@@ -84,6 +86,7 @@ def campaign_json(c: Campaign) -> dict:
 def health() -> dict:
     return {"ok": True, "mode": settings.mode, "call_mode": settings.call_mode,
             "conversation_mode": settings.conversation_mode,
+            "ai_conversation_available": bool(settings.sarvam_api_key),
             "conversation_model": settings.sarvam_chat_model if settings.conversation_mode == "sarvam" else None}
 
 
@@ -229,7 +232,7 @@ async def test_turn(session_id: str, data: TurnIn, db: Session = Depends(get_db)
     if not contact:
         raise HTTPException(404, "Test contact not found")
     try:
-        result = await add_conversation_turn(db, call, contact, data.text)
+        result = await add_conversation_turn(db, call, contact, data.text, data.conversation_mode)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     return {**result, "call": call_json(db, call)}

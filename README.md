@@ -49,7 +49,7 @@ docker compose up --build
 
 Open [http://localhost:5173](http://localhost:5173). Choose **Load sample workspace**, create a draft campaign, use **Voice lab** to test responses, then launch a campaign to simulate dial attempts. The worker processes queued attempts and shows them in **Live calls**. Sample data is synthetic; no telephone call is placed.
 
-For a spoken AI conversation, place your Sarvam key in `.env`, set `CONVERSATION_MODE=sarvam`, and restart the API:
+For a spoken AI conversation, place your Sarvam key in `.env` and restart the API. `CONVERSATION_MODE` sets the default for the Voice lab switch and controls the phone gateway:
 
 ```dotenv
 SARVAM_API_KEY=your_key_here
@@ -57,7 +57,7 @@ CONVERSATION_MODE=sarvam
 SARVAM_CHAT_MODEL=sarvam-105b-conversations
 ```
 
-In **Voice lab**, start a synthetic conversation, listen to the greeting, then press the microphone to record up to 15 seconds. Press it again to stop, review the Saaras v4 transcript, and press Send. Ask an open question such as “What is this reminder about?” and follow up with another question; the chat model uses recent turns to respond, and Bulbul v3 reads its answer aloud. You can type at any time. Explicit business actions still use the bounded workflow. Browser microphone permission is required on localhost; the API sends audio to Sarvam in memory and does not retain the recording. Sarvam speech and chat consume credits. A phone call still requires the separate Exotel media gateway and public WSS endpoint.
+In **Voice lab**, use the **AI conversation** switch to turn model replies on or off without restarting the API. The choice is saved in this browser and applies to the next reply, even during an active session. With it off, the deterministic reminder workflow answers. Saaras v4 transcription and Bulbul v3 playback remain available in either mode. Start a synthetic conversation, listen to the greeting, then press the microphone to record up to 15 seconds. Press it again to stop, review the transcript, and press Send. With AI conversation on, ask an open question such as “What is this reminder about?” and follow up; the chat model uses recent turns to respond. You can type at any time. Explicit business actions still use the bounded workflow. Browser microphone permission is required on localhost; the API sends audio to Sarvam in memory and does not retain the recording. Sarvam speech and chat consume credits. A phone call still requires the separate Exotel media gateway and public WSS endpoint.
 
 To stop: `docker compose down`. To erase the local database: `docker compose down -v`.
 

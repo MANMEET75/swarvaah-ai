@@ -148,3 +148,28 @@ def test_ai_unavailable_uses_bounded_reply(monkeypatch):
     assert result["model"] is None
     assert result["call"]["status"] == "connected"
     assert result["reply"].endswith("?")
+
+
+def test_voice_lab_can_switch_ai_per_turn(monkeypatch):
+    monkeypatch.setattr(conversation, "settings", SimpleNamespace(
+        conversation_mode="sarvam", sarvam_chat_model="sarvam-105b-conversations", sarvam_api_key="test"
+    ))
+    prompts = []
+
+    async def fake_model_reply(messages):
+        prompts.append(messages)
+        return "I can explain this reminder."
+
+    monkeypatch.setattr(conversation, "_model_reply", fake_model_reply)
+    call = client.post("/v1/test-calls", json={"language": "en-IN"}).json()
+    url = f"/v1/test-calls/{call['id']}/turn"
+    off = client.post(url, json={"text": "What is this about?", "conversation_mode": "deterministic"})
+    assert off.status_code == 200
+    assert off.json()["model"] is None
+    assert not prompts
+    on = client.post(url, json={"text": "Tell me more", "conversation_mode": "sarvam"})
+    assert on.status_code == 200
+    assert on.json()["model"] == "sarvam-105b-conversations"
+    assert len(prompts) == 1
+    assert any(message["content"] == "What is this about?" for message in prompts[0])
+    assert client.post(url, json={"text": "hello", "conversation_mode": "invalid"}).status_code == 422
