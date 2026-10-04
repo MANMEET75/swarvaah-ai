@@ -1,5 +1,10 @@
 from dataclasses import dataclass
 import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 
 @dataclass(frozen=True)
@@ -25,15 +30,22 @@ class Settings:
 
 settings = Settings()
 
-if settings.mode == "production":
+if settings.mode != "demo":
     if settings.admin_api_key == "change-this-before-exposing-the-api":
-        raise RuntimeError("ADMIN_API_KEY must be set in production")
+        raise RuntimeError("ADMIN_API_KEY must be set outside demo mode")
     if settings.database_url.startswith("sqlite"):
-        raise RuntimeError("Production requires PostgreSQL")
+        raise RuntimeError("Non-demo use requires PostgreSQL")
     if settings.call_mode == "exotel" and not all(
         [settings.exotel_account_sid, settings.exotel_api_key, settings.exotel_api_token,
-         settings.exotel_caller_id, settings.exotel_stream_url, settings.exotel_callback_secret]
+         settings.exotel_caller_id, settings.exotel_stream_url, settings.exotel_callback_secret,
+         settings.sarvam_api_key]
     ):
-        raise RuntimeError("Exotel configuration is incomplete")
+        raise RuntimeError("Exotel or Sarvam configuration is incomplete")
+    if settings.call_mode == "exotel" and not (
+        settings.exotel_stream_url.startswith("wss://") and settings.public_base_url.startswith("https://")
+    ):
+        raise RuntimeError("Live calls require public HTTPS and WSS endpoints")
     if settings.call_mode == "exotel" and not settings.live_dial_enabled:
         raise RuntimeError("Set LIVE_DIAL_ENABLED=true only after provider and consent checks")
+elif settings.call_mode == "exotel":
+    raise RuntimeError("Live dialing cannot run in demo mode")
