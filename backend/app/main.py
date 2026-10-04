@@ -86,7 +86,6 @@ def campaign_json(c: Campaign) -> dict:
 def health() -> dict:
     return {"ok": True, "mode": settings.mode, "call_mode": settings.call_mode,
             "conversation_mode": settings.conversation_mode,
-            "ai_conversation_available": bool(settings.sarvam_api_key),
             "conversation_model": settings.sarvam_chat_model if settings.conversation_mode == "sarvam" else None}
 
 

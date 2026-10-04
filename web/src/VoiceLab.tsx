@@ -33,8 +33,7 @@ export default function VoiceLab({ onSessionStarted }: { onSessionStarted: () =>
   const [phase, setPhase] = useState<'idle' | 'starting' | 'recording' | 'transcribing' | 'processing' | 'speaking'>('idle')
   const [error, setError] = useState('')
   const [hint, setHint] = useState('Start a test, then speak or type a reply.')
-  const [aiEnabled, setAiEnabled] = useState(false)
-  const [aiAvailable, setAiAvailable] = useState(false)
+  const [aiEnabled, setAiEnabled] = useState(() => window.localStorage.getItem('swarvaah.voiceLab.aiEnabled') === 'true')
   const recorder = useRef<MediaRecorder | null>(null)
   const stream = useRef<MediaStream | null>(null)
   const audio = useRef<HTMLAudioElement | null>(null)
@@ -45,11 +44,10 @@ export default function VoiceLab({ onSessionStarted }: { onSessionStarted: () =>
 
   useEffect(() => { bottom.current?.scrollIntoView({ behavior: 'smooth' }) }, [call?.events.length])
   useEffect(() => {
-    void api<{ conversation_mode: string; ai_conversation_available: boolean }>('/health', { method: 'GET' })
+    void api<{ conversation_mode: string }>('/health', { method: 'GET' })
       .then(status => {
-        setAiAvailable(status.ai_conversation_available)
         const saved = window.localStorage.getItem('swarvaah.voiceLab.aiEnabled')
-        setAiEnabled(status.ai_conversation_available && (saved === null ? status.conversation_mode === 'sarvam' : saved === 'true'))
+        if (saved === null) setAiEnabled(status.conversation_mode === 'sarvam')
       })
       .catch(() => { /* API errors are surfaced when starting a session */ })
   }, [])
@@ -226,8 +224,8 @@ export default function VoiceLab({ onSessionStarted }: { onSessionStarted: () =>
           <label className="field full">Language<select value={form.language} onChange={e => setForm({ ...form, language: e.target.value })}><option value="hi-IN">Hindi / Hinglish</option><option value="en-IN">English</option></select></label>
         </div>
         <button className="primary-button wide" disabled={!['idle', 'speaking'].includes(phase) || !form.name.trim() || !form.reminder_label.trim()} onClick={() => void start()}>{phase === 'starting' ? 'Starting…' : call ? 'Start new conversation' : 'Start conversation'} <span>↗</span></button>
-        <div className="lab-provider"><span className="lab-provider-dot"/><div className="lab-provider-copy"><strong>AI conversation {aiEnabled ? 'enabled' : 'off'}</strong><small>{aiEnabled ? 'Sarvam 105B answers open questions' : 'Bounded reminder workflow answers'}</small></div><button type="button" role="switch" aria-label="Enable AI conversation" aria-checked={aiEnabled} className={`lab-ai-switch ${aiEnabled ? 'on' : ''}`} onClick={toggleAi} disabled={!aiAvailable || phase === 'processing'}><span/></button></div>
-        <p className="lab-switch-note">{aiAvailable ? 'Applies to your next reply. Saaras transcription and Bulbul playback work in either mode.' : 'Add SARVAM_API_KEY to enable AI conversation. Speech needs the same key.'}</p>
+        <div className="lab-provider"><span className="lab-provider-dot"/><div className="lab-provider-copy"><strong>AI conversation {aiEnabled ? 'enabled' : 'off'}</strong><small>{aiEnabled ? 'Sarvam 105B answers open questions' : 'Bounded reminder workflow answers'}</small></div><button type="button" role="switch" aria-label="Enable AI conversation" aria-checked={aiEnabled} className={`lab-ai-switch ${aiEnabled ? 'on' : ''}`} onClick={toggleAi} disabled={phase === 'processing'}><span/></button></div>
+        <p className="lab-switch-note">Applies to your next reply. Saaras transcription and Bulbul playback work in either mode.</p>
         <p className="lab-note">Use fictional details. Microphone audio is sent to Sarvam for transcription; it is not saved in the call record. You can always type instead.</p>
       </div>
       <div className="panel conversation-panel">

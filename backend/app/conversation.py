@@ -68,7 +68,7 @@ async def add_conversation_turn(db: Session, session: CallSession, contact: Cont
         raise ValueError("Call already ended")
     mode = mode_override or settings.conversation_mode
     if mode == "sarvam" and not settings.sarvam_api_key:
-        raise ValueError("SARVAM_API_KEY is required for AI conversation")
+        raise ValueError("AI conversation is unavailable on this server")
     if mode != "sarvam":
         return {**add_turn(db, session, contact, text), "model": None}
     decision = respond(session.workflow_state, text, session.language)
