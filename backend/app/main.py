@@ -3,7 +3,7 @@ import json
 from datetime import datetime
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from sqlalchemy import desc, select
@@ -14,6 +14,7 @@ from .core import add_turn, import_csv, launch_campaign, masked_phone, metrics, 
 from .db import Base, engine, get_db
 from .models import AuditEvent, CallAttempt, CallEvent, CallSession, Campaign, Contact
 from .exotel import normalize_status
+from .voice_lab import synthesize, transcribe
 
 
 @asynccontextmanager
@@ -58,6 +59,11 @@ class TestCallIn(BaseModel):
 
 class TurnIn(BaseModel):
     text: str = Field(min_length=1, max_length=1000)
+
+
+class SpeakIn(BaseModel):
+    text: str = Field(min_length=1, max_length=1000)
+    language: str = Field(pattern="^(hi-IN|en-IN)$")
 
 
 class OutcomeCorrection(BaseModel):
@@ -181,6 +187,23 @@ def test_call(data: TestCallIn, db: Session = Depends(get_db)) -> dict:
     db.commit()
     session = start_session(db, contact)
     return call_json(db, session)
+
+
+@app.post("/v1/voice-lab/speak", dependencies=[Depends(authorize)])
+async def voice_lab_speak(data: SpeakIn) -> Response:
+    if settings.mode != "demo":
+        raise HTTPException(403, "Voice lab is enabled only in demo mode")
+    audio = await synthesize(data.text, data.language)
+    return Response(audio, media_type="audio/wav", headers={"Cache-Control": "no-store"})
+
+
+@app.post("/v1/voice-lab/transcribe", dependencies=[Depends(authorize)])
+async def voice_lab_transcribe(file: UploadFile = File(...)) -> dict:
+    if settings.mode != "demo":
+        raise HTTPException(403, "Voice lab is enabled only in demo mode")
+    audio = await file.read(2_000_001)
+    text = await transcribe(audio, (file.content_type or "").split(";")[0])
+    return {"text": text}
 
 
 def call_json(db: Session, call: CallSession) -> dict:

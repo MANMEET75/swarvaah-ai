@@ -11,6 +11,7 @@ from app.models import CallAttempt, Contact, OutboxEvent
 from app.voice_agent import stream_signature
 from app.exotel import ExotelError, extract_call_sid
 from app import worker
+from app import main as main_module
 
 
 engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
@@ -72,3 +73,29 @@ def test_exotel_response_envelopes():
         pass
     else:
         raise AssertionError("missing call SID must fail")
+
+
+def test_voice_lab_keeps_provider_audio_out_of_call_history(monkeypatch):
+    async def fake_synthesize(text, language):
+        assert language == "en-IN"
+        assert text == "Hello from the lab"
+        return b"RIFFsynthetic"
+
+    async def fake_transcribe(audio, content_type):
+        assert audio == b"synthetic-audio"
+        assert content_type == "audio/webm"
+        return "Please reschedule"
+
+    monkeypatch.setattr(main_module, "synthesize", fake_synthesize)
+    monkeypatch.setattr(main_module, "transcribe", fake_transcribe)
+    session = client.post("/v1/test-calls", json={"language": "en-IN"}).json()
+    initial_events = len(session["events"])
+    voice = client.post("/v1/voice-lab/speak", json={"text": "Hello from the lab", "language": "en-IN"})
+    assert voice.status_code == 200
+    assert voice.headers["content-type"] == "audio/wav"
+    assert voice.content == b"RIFFsynthetic"
+    transcript = client.post("/v1/voice-lab/transcribe", files={"file": ("reply.webm", b"synthetic-audio", "audio/webm")})
+    assert transcript.json() == {"text": "Please reschedule"}
+    call = client.get(f"/v1/calls/{session['id']}").json()
+    assert len(call["events"]) == initial_events
+    assert client.post("/v1/voice-lab/speak", json={"text": "x", "language": "fr-FR"}).status_code == 422

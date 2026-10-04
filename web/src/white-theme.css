@@ -1,0 +1,62 @@
+/* White workspace: ink, porcelain, and a restrained indigo action color. */
+.app.theme-light{--bg:#f8f9fc;--surface:#fff;--surface2:#f7f8fc;--text:#172039;--muted:#68758c;--line:#e5e8f0;--accent:#445bd1;--accent2:#3549b4;--sidebar:#fff;--shadow:0 6px 24px rgba(32,49,92,.045)}
+.sidebar{color:var(--text);border-right:1px solid var(--line);box-shadow:3px 0 22px rgba(29,42,71,.025)}
+.brand-mark{background:#243568;color:#fff;box-shadow:none;border-radius:11px}
+.brand em{color:#445bd1}.brand small{color:#8490a6}
+.workspace-switch{background:#f8f9fd;border-color:var(--line)}
+.workspace-avatar{background:#e7eaff;color:#3246a9}
+.workspace-switch small,.user-row small{color:#8190a5}.chevron{color:#8290a5}
+.nav-group{color:#97a1b3}.nav-item{color:#647188}
+.nav-item:hover{color:#273869;background:#f2f4fb}.nav-item.active{color:#3449b6;background:#eef0fb}
+.nav-count{background:#eef0f6;color:#758198}.user-row{border-color:var(--line)}.user-row>span{color:#8994a6}
+.system-state{background:#f6f7fb;border-color:var(--line)}.system-state strong{color:#263457}.system-state small{color:#7c89a0}
+.pulse-dot,.tiny-dot{background:#5267cd;box-shadow:0 0 0 4px #5267cd1f}
+.topbar{background:#fff}.env-pill,.subtle-pill{color:#3c50ac;background:#eef0fb;border-color:#dde2f5}
+.primary-button{background:#3146b0;color:#fff;box-shadow:0 7px 17px #344db01c}.primary-button:hover{background:#263a9b}
+.hero-panel{background:linear-gradient(112deg,#fff 24%,#f2f5ff 100%);border-color:#e2e6f4}
+.hero-panel:after{background:linear-gradient(90deg,transparent 52%,#dce4ff35)}
+.hero-kicker,.hero-copy h2 em{color:#4055bd}.hero-copy h2{color:#172039}.hero-copy p{color:#66728c}
+.hero-actions button{background:#3146b0;border-color:#3146b0;color:#fff}.hero-actions>span{color:#7884a2}
+.orb{border-color:#c7d0ee;background:radial-gradient(circle at 30% 30%,#fff,#dce4fb 58%,#bccbf3);box-shadow:0 0 55px #9eafe232,inset -12px -20px 40px #8a9fcb24}
+.wave-line{color:#4760c8;text-shadow:0 0 16px #8fa7f055}
+.metric-icon,.message-icon,.review-icon{color:#4055bd;background:#eef0fb}
+.bar{background:linear-gradient(180deg,#8094e5,#455cc6)}
+.step-index.done{background:#eef0fb;border-color:#cbd3f2;color:#4055bd}
+.status-active,.status-eligible,.status-completed,.status-connected,.status-demo{color:#3d63a3;background:#eaf0fb}
+.dropzone{border-color:#b5c0e8;background:#fafbff}.field input:focus,.field select:focus{border-color:#5267cd;box-shadow:0 0 0 3px #5267cd16}
+.row-actions button:hover{border-color:#5267cd}.note-list span{color:#5165bf}
+.send-button{background:#3146b0;color:#fff}.mic-button{color:#3c51bd}
+.message.caller .message-icon{background:#e9edf5;color:#5b6880}
+.toast.success{background:#eef2fb;color:#3653ad;border-color:#d8e0f3}.toast.error{background:#fff2f2;color:#b84b55;border-color:#f3d9dc}
+.timeline-dot{background:#5267cd}.timeline-dot.caller{background:#9aa9c6}
+
+/* Voice lab */
+.voice-lab-page .page-head{align-items:center}.voice-lab-page .page-head h1{font-size:30px}
+.lab-mode-pill{border:1px solid #dce3f4;color:#41569d;background:#f1f4fc;border-radius:100px;font-size:11px;font-weight:700;padding:10px 13px;white-space:nowrap}
+.lab-grid{grid-template-columns:minmax(300px,340px) minmax(0,1fr);align-items:stretch;gap:20px}
+.lab-setup,.conversation-panel{border-radius:15px;box-shadow:0 12px 34px #263d7510}
+.lab-setup{padding:26px}.lab-step{color:#8994aa;font-size:10px;font-weight:800;letter-spacing:1px}
+.lab-setup .field{font-size:11px;color:#536078}.lab-setup .field input,.lab-setup .field select{font-size:12px;background:#fff;padding:12px}
+.lab-setup .primary-button{font-size:12px;padding:13px 16px;display:flex;justify-content:space-between;align-items:center}
+.lab-provider{display:flex;align-items:center;gap:10px;margin-top:24px;border-top:1px solid var(--line);padding-top:19px}
+.lab-provider-dot{width:9px;height:9px;background:#5267cd;border-radius:50%;box-shadow:0 0 0 4px #5267cd19}
+.lab-provider strong{display:block;font-size:11px}.lab-provider small{display:block;color:var(--muted);font-size:10px;margin-top:4px}
+.lab-note{font-size:10px;line-height:1.6;color:var(--muted);margin-top:15px}
+.conversation-panel{height:590px;padding:0;overflow:hidden}.conversation-header{padding:22px 24px;margin:0;border-bottom:1px solid var(--line)}
+.conversation-header h3{font-size:15px}.conversation-header p{font-size:11px}
+.lab-session-state{border:1px solid #dce3f4;background:#f6f8fc;color:#64728d;border-radius:100px;padding:7px 11px;font-size:10px;font-weight:800;text-transform:capitalize}
+.lab-session-state.ended{background:#f2f4f8}
+.messages{padding:23px 24px;gap:19px}.message{max-width:min(85%,530px)}.message-body{min-width:0}
+.message-body p{background:#f3f5fb;border:1px solid #e9ecf5;border-radius:3px 12px 12px 12px;padding:11px 13px;font-size:12px;line-height:1.6;margin:6px 0}
+.message.caller .message-body p{background:#eaf0ff;border-color:#dee6fb;border-radius:12px 3px 12px 12px}
+.message span{font-size:10px;color:#64728e}.play-link{font-size:10px;padding:4px 0}
+.lab-alert{margin:0 24px;padding:9px 11px;color:#ad4450;background:#fff2f2;border:1px solid #f2dce0;border-radius:7px;font-size:11px}
+.lab-hint{padding:9px 24px 0;color:#687891;font-size:10px}
+.conversation-panel .composer{margin:7px 24px 22px;padding-top:13px}
+.conversation-panel .composer input{font-size:12px;padding:10px 12px;background:#fff}
+.conversation-panel .mic-button,.conversation-panel .send-button{width:40px;height:40px;flex:none;border-radius:9px}
+.conversation-panel .mic-button.listening{color:#d34255;background:#fff0f2;border-color:#e9bac2}
+.lab-presets{margin-top:19px}.lab-presets button{font-size:11px;color:#43516c;padding:9px 12px}.lab-presets button:hover{color:#3549b4;border-color:#9ca9dc}
+@media(max-width:1100px){.lab-grid{grid-template-columns:minmax(270px,310px) minmax(0,1fr)}}
+@media(max-width:850px){.lab-grid{grid-template-columns:1fr}.conversation-panel{height:550px}}
+@media(max-width:600px){.voice-lab-page .page-head{align-items:flex-start;flex-direction:column}.lab-mode-pill{font-size:10px}.conversation-panel{height:530px}.messages{padding:17px}.conversation-header{padding:17px}.conversation-panel .composer{margin:7px 17px 17px}.lab-hint{padding-left:17px}.lab-alert{margin:0 17px}}

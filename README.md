@@ -36,7 +36,7 @@ The conversation logic does not need an LLM to take action. It selects a known o
 ## Prerequisites
 
 - Docker Engine with Compose **or** Python 3.11–3.14, Node.js 22+, PostgreSQL 17, and Redis 7.
-- No Exotel, Sarvam, phone number, or paid account is needed for the local demo.
+- No Exotel, phone number, or paid account is needed for the local text and campaign simulation. Add `SARVAM_API_KEY` to the ignored local `.env` to use Sarvam speech in Voice lab.
 
 ## Run the local proof
 
@@ -47,6 +47,8 @@ docker compose up --build
 ```
 
 Open [http://localhost:5173](http://localhost:5173). Choose **Load sample workspace**, create a draft campaign, use **Voice lab** to test responses, then launch a campaign to simulate dial attempts. The worker processes queued attempts and shows them in **Live calls**. Sample data is synthetic; no telephone call is placed.
+
+For a spoken Voice lab test, place your Sarvam key in `.env` as `SARVAM_API_KEY=...` and restart the API. In **Voice lab**, start a synthetic conversation, listen to the greeting, then press the microphone to record up to 15 seconds. Press it again to stop, review the Saaras v4 transcript, and press Send. Bulbul v3 reads the reply aloud. You can type a reply at any time. Browser microphone permission is required on localhost; the API sends audio to Sarvam in memory and does not retain the recording. Voice lab requires network access to Sarvam and consumes a small amount of credit. A phone call still requires the separate Exotel media gateway and public WSS endpoint.
 
 To stop: `docker compose down`. To erase the local database: `docker compose down -v`.
 
