@@ -1,0 +1,42 @@
+"""Deterministic reminder dialogue; business effects are explicit events."""
+import re
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class Turn:
+    state: str
+    outcome: str | None
+    reply: str
+    action: str | None = None
+
+
+YES = re.compile(r"\b(yes|confirm|confirmed|okay|ok|sure|haan|han|ha|हाँ|ठीक|पक्का)\b", re.I)
+NO = re.compile(r"\b(no|not now|cancel|nahi|nahin|नहीं|मत)\b", re.I)
+RESCHEDULE = re.compile(r"\b(reschedule|change|another time|later|postpone|समय बदल|बाद में)\b", re.I)
+HUMAN = re.compile(r"\b(agent|human|person|representative|किसी से बात|इंसान)\b", re.I)
+STOP = re.compile(r"\b(stop calling|do not call|don't call|opt out|unsubscribe|कॉल मत|बंद करो)\b", re.I)
+
+
+def greeting(name: str, label: str, when: str, language: str) -> str:
+    if language == "hi-IN":
+        return f"नमस्ते {name}, मैं Swarvaah AI assistant बोल रही हूँ। यह {label} के लिए {when} का service reminder है। क्या आप इसे confirm करना चाहेंगे?"
+    return f"Hello {name}, I'm the Swarvaah AI assistant. This is a service reminder for {label} at {when}. Would you like to confirm it?"
+
+
+def respond(state: str, text: str, language: str = "en-IN") -> Turn:
+    message = text.strip()
+    hindi = language == "hi-IN" or bool(re.search(r"[\u0900-\u097f]", message))
+    if STOP.search(message) or "कॉल मत" in message or "बंद करो" in message:
+        return Turn("ended", "opted_out", "ठीक है, हम आपको दोबारा कॉल नहीं करेंगे। धन्यवाद।" if hindi else "Understood. We will not call you again. Thank you.", "opt_out")
+    if HUMAN.search(message) or "किसी से बात" in message:
+        return Turn("ended", "human_callback", "ज़रूर। हमारी टीम आपसे संपर्क करेगी।" if hindi else "Of course. A person from our team will contact you.", "human_callback")
+    if RESCHEDULE.search(message) or "समय बदल" in message or "बाद में" in message:
+        return Turn("ended", "reschedule_requested", "समय बदलने का अनुरोध दर्ज है। हमारी टीम उपलब्ध समय बताएगी।" if hindi else "I've recorded a reschedule request. Our team will offer available times.", "reschedule_request")
+    if YES.search(message) or "हाँ" in message or "ठीक" in message:
+        return Turn("ended", "confirmed", "धन्यवाद, आपका confirmation दर्ज हो गया है।" if hindi else "Thank you. Your confirmation has been recorded.", "confirm")
+    if NO.search(message) or "नहीं" in message:
+        return Turn("ended", "declined", "समझ गई। हम इसे confirm नहीं करेंगे।" if hindi else "Understood. I won't mark it as confirmed.", "decline")
+    if state == "ended":
+        return Turn("ended", None, "यह बातचीत समाप्त हो गई है।" if hindi else "This conversation has ended.")
+    return Turn("awaiting_intent", None, "क्या आप confirm, reschedule, या किसी व्यक्ति से बात करना चाहेंगे?" if hindi else "Would you like to confirm, request a new time, or speak with a person?")

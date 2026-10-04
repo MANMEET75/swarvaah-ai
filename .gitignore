@@ -1,0 +1,15 @@
+.env
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.egg-info/
+*.db
+web/node_modules/
+web/dist/
+*.tsbuildinfo
+.terraform/
+*.tfstate*
+*.tfvars
+coverage/
+*.log
