@@ -9,6 +9,7 @@ from app.db import Base, get_db
 from app.main import app
 from app.models import CallAttempt, Contact, OutboxEvent
 from app.voice_agent import stream_signature
+from app.exotel import ExotelError, extract_call_sid
 from app import worker
 
 
@@ -60,3 +61,14 @@ def test_worker_simulates_queued_reminder(monkeypatch):
     assert worker.process_one() is True
     with Session(engine) as db:
         assert db.scalar(select(CallAttempt)).status == "completed"
+
+
+def test_exotel_response_envelopes():
+    assert extract_call_sid('{"Call":{"Sid":"call-json-1"}}') == "call-json-1"
+    assert extract_call_sid('<Response><Call><Sid>call-xml-1</Sid></Call></Response>') == "call-xml-1"
+    try:
+        extract_call_sid('{"Call":{}}')
+    except ExotelError:
+        pass
+    else:
+        raise AssertionError("missing call SID must fail")

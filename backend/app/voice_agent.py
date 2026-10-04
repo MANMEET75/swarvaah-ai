@@ -62,14 +62,17 @@ async def exotel_stream(websocket: WebSocket) -> None:
     try:
         # The first Exotel packets are metadata; Pipecat consumes subsequent media.
         stream_sid = None
+        exotel_sample_rate = 8000
         for _ in range(3):
             message = json.loads(await websocket.receive_text())
             if message.get("event") == "start":
                 start = message.get("start") or {}
                 stream_sid = (message.get("stream_sid") or message.get("streamSid") or
                               start.get("stream_sid") or start.get("streamSid"))
+                media_format = start.get("media_format") or {}
+                exotel_sample_rate = int(media_format.get("sample_rate") or 8000)
                 break
-        if not stream_sid:
+        if not stream_sid or exotel_sample_rate not in {8000, 16000, 24000}:
             await websocket.close(code=1008)
             return
 
@@ -99,7 +102,8 @@ async def exotel_stream(websocket: WebSocket) -> None:
                     await self.push_frame(frame, direction)
 
         transport = FastAPIWebsocketTransport(websocket, FastAPIWebsocketParams(
-            serializer=ExotelFrameSerializer(stream_sid=stream_sid), audio_in_enabled=True,
+            serializer=ExotelFrameSerializer(stream_sid=stream_sid,
+                params=ExotelFrameSerializer.InputParams(exotel_sample_rate=exotel_sample_rate)), audio_in_enabled=True,
             audio_out_enabled=True, audio_in_sample_rate=16000, audio_out_sample_rate=16000,
         ))
         stt = SarvamRealtimeSTTService(api_key=settings.sarvam_api_key,

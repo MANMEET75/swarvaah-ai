@@ -1,5 +1,7 @@
 """Exotel Connect Voice AI API and callback normalization."""
+import json
 from urllib.parse import quote
+from xml.etree import ElementTree
 
 import httpx
 
@@ -9,6 +11,25 @@ from .voice_agent import stream_signature
 
 class ExotelError(RuntimeError):
     pass
+
+
+def extract_call_sid(body: str) -> str:
+    """Accept the XML or JSON Call envelope returned by Exotel."""
+    try:
+        root = ElementTree.fromstring(body)
+        sid = root.findtext(".//Sid") or root.findtext(".//CallSid")
+        if root.tag in {"Sid", "CallSid"}:
+            sid = sid or root.text
+    except ElementTree.ParseError:
+        try:
+            payload = json.loads(body)
+        except ValueError as exc:
+            raise ExotelError("Exotel returned an unreadable response") from exc
+        call = payload.get("Call", payload) if isinstance(payload, dict) else {}
+        sid = call.get("Sid") or call.get("CallSid") or call.get("call_sid")
+    if not sid:
+        raise ExotelError("Exotel response did not contain a call SID")
+    return str(sid)
 
 
 def place_call(phone: str, attempt_id: str) -> str:
@@ -32,21 +53,7 @@ def place_call(phone: str, attempt_id: str) -> str:
             response.raise_for_status()
     except httpx.HTTPError as exc:
         raise ExotelError(f"Exotel dial failed: {type(exc).__name__}") from exc
-    body = response.text
-    # Exotel may return XML for this API; parse without logging credentials or phone numbers.
-    from xml.etree import ElementTree
-    try:
-        root = ElementTree.fromstring(body)
-        sid = root.findtext(".//Sid") or root.findtext(".//CallSid")
-    except ElementTree.ParseError:
-        try:
-            payload = response.json()
-            sid = payload.get("Sid") or payload.get("CallSid") or payload.get("call_sid")
-        except ValueError:
-            sid = None
-    if not sid:
-        raise ExotelError("Exotel response did not contain a call SID")
-    return str(sid)
+    return extract_call_sid(response.text)
 
 
 def normalize_status(raw: str) -> str:
