@@ -2,7 +2,7 @@ import csv
 import io
 import json
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select
@@ -50,8 +50,12 @@ def import_csv(db: Session, raw: bytes) -> dict:
                 raise ValueError("consent_source is required")
             consent_at = (row.get("consent_at") or "").strip()
             reminder_at = (row.get("reminder_at") or "").strip()
-            datetime.fromisoformat(consent_at.replace("Z", "+00:00"))
-            datetime.fromisoformat(reminder_at.replace("Z", "+00:00"))
+            consent_time = datetime.fromisoformat(consent_at.replace("Z", "+00:00"))
+            reminder_time = datetime.fromisoformat(reminder_at.replace("Z", "+00:00"))
+            if consent_time.tzinfo is None or reminder_time.tzinfo is None:
+                raise ValueError("Timestamps must include a timezone offset")
+            if consent_time > datetime.now(timezone.utc):
+                raise ValueError("consent_at cannot be in the future")
             language = (row.get("language") or "hi-IN").strip()
             if language not in {"hi-IN", "en-IN"}:
                 raise ValueError("language must be hi-IN or en-IN")
@@ -93,7 +97,7 @@ def launch_campaign(db: Session, campaign: Campaign) -> dict:
         attempt = CallAttempt(campaign_id=campaign.id, contact_id=contact.id, idempotency_key=key)
         db.add(attempt)
         db.flush()
-        db.add(OutboxEvent(kind="dial_requested", payload=json.dumps({"attempt_id": attempt.id})))
+        db.add(OutboxEvent(kind="dial_requested", attempt_id=attempt.id, payload=json.dumps({"attempt_id": attempt.id})))
         queued += 1
     if queued == 0 and campaign.status == "draft":
         raise ValueError("No eligible contacts found")

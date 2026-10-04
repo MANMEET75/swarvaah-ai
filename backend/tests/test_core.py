@@ -9,6 +9,7 @@ from app.db import Base, get_db
 from app.main import app
 from app.models import CallAttempt, Contact, OutboxEvent
 from app.voice_agent import stream_signature
+from app import worker
 
 
 engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
@@ -52,3 +53,10 @@ def test_csv_rejects_invalid_phone_and_missing_columns():
 
 def test_stream_signature_is_stable():
     assert stream_signature("abc") == stream_signature("abc")
+
+
+def test_worker_simulates_queued_reminder(monkeypatch):
+    monkeypatch.setattr(worker, "SessionLocal", lambda: Session(engine))
+    assert worker.process_one() is True
+    with Session(engine) as db:
+        assert db.scalar(select(CallAttempt)).status == "completed"

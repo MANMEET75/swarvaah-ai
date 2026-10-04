@@ -1,5 +1,4 @@
 """Capacity-aware dial worker. Simulation is the default and never places a phone call."""
-import json
 import logging
 import time
 from datetime import datetime
@@ -34,19 +33,27 @@ def _allow_rate() -> bool:
 
 def process_one() -> bool:
     with SessionLocal() as db:
-        event = db.scalar(select(OutboxEvent).where(OutboxEvent.sent_at.is_(None)).order_by(OutboxEvent.created_at).with_for_update(skip_locked=True))
+        event = db.scalar(select(OutboxEvent)
+                          .join(CallAttempt, OutboxEvent.attempt_id == CallAttempt.id)
+                          .join(Campaign, CallAttempt.campaign_id == Campaign.id)
+                          .where(OutboxEvent.sent_at.is_(None), Campaign.status != "paused")
+                          .order_by(OutboxEvent.created_at)
+                          .with_for_update(of=OutboxEvent, skip_locked=True))
         if not event:
             return False
-        payload = json.loads(event.payload)
-        attempt = db.get(CallAttempt, payload["attempt_id"])
+        attempt = db.get(CallAttempt, event.attempt_id)
         if not attempt or attempt.status != "queued":
             event.sent_at = datetime.now(ZoneInfo("UTC"))
             db.commit()
             return True
         campaign = db.get(Campaign, attempt.campaign_id)
         contact = db.get(Contact, attempt.contact_id)
-        if not campaign or not contact or campaign.status in {"stopped", "paused"}:
-            return False
+        if not campaign or not contact or campaign.status == "stopped":
+            attempt.status = "cancelled"
+            attempt.reason = "Campaign stopped"
+            event.sent_at = datetime.now(ZoneInfo("UTC"))
+            db.commit()
+            return True
         if contact.suppressed or not contact.consent_source:
             attempt.status = "suppressed"
             attempt.reason = "Suppressed or missing consent"

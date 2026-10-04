@@ -100,6 +100,7 @@ class AuditEvent(Base):
 class OutboxEvent(Base):
     __tablename__ = "outbox_events"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    attempt_id: Mapped[str] = mapped_column(ForeignKey("call_attempts.id"), index=True)
     kind: Mapped[str] = mapped_column(String(40))
     payload: Mapped[str] = mapped_column(Text)
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
