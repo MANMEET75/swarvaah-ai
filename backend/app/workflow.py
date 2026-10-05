@@ -22,7 +22,7 @@ INFORMATIONAL = re.compile(r"^(?:what (?:does|is)|why|how (?:does|do|can)|explai
 def greeting(name: str, label: str, when: str, language: str) -> str:
     if language == "hi-IN":
         return f"नमस्ते {name}, मैं Swarvaah AI assistant बोल रही हूँ। यह {label} के लिए {when} का service reminder है। क्या आप इसे confirm करना चाहेंगे?"
-    return f"Hello {name}, I'm the Swarvaah AI assistant. This is a service reminder for {label} at {when}. Would you like to confirm it?"
+    return f"Hello {name}, I'm the Swarvaah AI assistant. This is a service reminder for {label} {when}. Would you like to confirm it?"
 
 
 def respond(state: str, text: str, language: str = "en-IN") -> Turn:

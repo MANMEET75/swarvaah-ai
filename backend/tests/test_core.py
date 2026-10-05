@@ -23,7 +23,7 @@ from app import exotel
 from app import main as main_module
 from app import twilio_provider
 from app import voice_agent
-from app.workflow import respond
+from app.workflow import greeting, respond
 
 
 engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
@@ -235,6 +235,12 @@ def test_reschedule_closes_politely_without_claiming_time_changed(monkeypatch):
     hindi = respond("intro", "समय बदलना है", "hi-IN")
     assert hindi.outcome == "reschedule_requested"
     assert hindi.reply.endswith("धन्यवाद, आपका दिन शुभ हो।")
+
+
+def test_greeting_does_not_duplicate_time_preposition():
+    reply = greeting("Manmeet Singh", "your interview", "tomorrow at 10:00 AM", "en-IN")
+    assert "your interview tomorrow at 10:00 AM" in reply
+    assert "at tomorrow" not in reply
 
 
 def _queued_attempt() -> str:
