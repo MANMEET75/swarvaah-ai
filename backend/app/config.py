@@ -20,6 +20,11 @@ class Settings:
     exotel_caller_id: str = os.getenv("EXOTEL_CALLER_ID", "")
     exotel_stream_url: str = os.getenv("EXOTEL_STREAM_URL", "")
     exotel_callback_secret: str = os.getenv("EXOTEL_CALLBACK_SECRET", "")
+    twilio_fallback_enabled: bool = os.getenv("TWILIO_FALLBACK_ENABLED", "false").lower() == "true"
+    twilio_account_sid: str = os.getenv("TWILIO_ACCOUNT_SID", "")
+    twilio_auth_token: str = os.getenv("TWILIO_AUTH_TOKEN", "")
+    twilio_caller_id: str = os.getenv("TWILIO_CALLER_ID", "")
+    twilio_stream_url: str = os.getenv("TWILIO_STREAM_URL", "")
     sarvam_api_key: str = os.getenv("SARVAM_API_KEY", "")
     conversation_mode: str = os.getenv("CONVERSATION_MODE", "deterministic")
     sarvam_chat_model: str = os.getenv("SARVAM_CHAT_MODEL", "sarvam-105b-conversations")
@@ -56,5 +61,12 @@ if settings.mode != "demo":
         raise RuntimeError("Live calls require public HTTPS and WSS endpoints")
     if settings.call_mode == "exotel" and not settings.live_dial_enabled:
         raise RuntimeError("Set LIVE_DIAL_ENABLED=true only after provider and consent checks")
+    if settings.twilio_fallback_enabled and (settings.call_mode != "exotel" or not all(
+        [settings.twilio_account_sid, settings.twilio_auth_token, settings.twilio_caller_id,
+         settings.twilio_stream_url.startswith("wss://"), settings.public_base_url.startswith("https://")]
+    )):
+        raise RuntimeError("Twilio fallback requires complete credentials, caller ID, and public HTTPS/WSS endpoints")
 elif settings.call_mode == "exotel":
     raise RuntimeError("Live dialing cannot run in demo mode")
+elif settings.twilio_fallback_enabled:
+    raise RuntimeError("Twilio fallback cannot run in demo mode")

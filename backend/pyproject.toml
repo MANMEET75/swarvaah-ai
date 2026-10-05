@@ -22,7 +22,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-voice = ["pipecat-ai[websocket,sarvam]>=1.8,<2"]
+voice = ["pipecat-ai[websocket,sarvam]>=1.12,<2"]
 test = ["pytest>=8,<10"]
 
 [tool.setuptools.packages.find]

@@ -16,6 +16,7 @@ from .conversation import add_conversation_turn
 from .db import Base, engine, get_db
 from .models import AuditEvent, CallAttempt, CallEvent, CallSession, Campaign, Contact
 from .exotel import normalize_status
+from .twilio_provider import normalize_status as normalize_twilio_status, signed_request as twilio_signed_request
 from .voice_lab import synthesize, transcribe
 
 
@@ -213,7 +214,10 @@ async def voice_lab_transcribe(file: UploadFile = File(...)) -> dict:
 
 def call_json(db: Session, call: CallSession) -> dict:
     events = db.scalars(select(CallEvent).where(CallEvent.session_id == call.id).order_by(CallEvent.created_at, CallEvent.id)).all()
+    attempt = db.get(CallAttempt, call.attempt_id) if call.attempt_id else None
+    provider = "twilio" if attempt and (attempt.provider_sid or "").startswith("twilio:") else "exotel" if attempt else "browser"
     return {"id": call.id, "direction": call.direction, "status": call.status,
+            "provider": provider,
             "state": call.workflow_state, "outcome": call.outcome, "language": call.language,
             "attempt_id": call.attempt_id, "created_at": call.created_at.isoformat(),
             "events": [{"kind": event.kind, "text": event.text,
@@ -290,6 +294,29 @@ async def exotel_callback(secret: str, request: Request, db: Session = Depends(g
     attempt.status = normalize_status(str(data.get("Status") or data.get("CallStatus") or ""))
     attempt.reason = str(data.get("FailureReason") or "")[:240] or None
     db.commit()
+    return {"accepted": True}
+
+
+@app.post("/v1/webhooks/twilio")
+async def twilio_callback(request: Request, db: Session = Depends(get_db)) -> dict:
+    form = {key: str(value) for key, value in (await request.form()).items()}
+    public_url = f"{settings.public_base_url.rstrip('/')}{request.url.path}"
+    if not twilio_signed_request(public_url, form, request.headers.get("X-Twilio-Signature", "")):
+        raise HTTPException(401, "Invalid Twilio signature")
+    if form.get("AccountSid") != settings.twilio_account_sid:
+        raise HTTPException(403, "Unknown Twilio account")
+    sid = form.get("CallSid", "")
+    if not sid:
+        raise HTTPException(400, "Missing call SID")
+    attempt = db.scalar(select(CallAttempt).where(CallAttempt.provider_sid == f"twilio:{sid}"))
+    if not attempt:
+        raise HTTPException(404, "Unknown call SID")
+    status = normalize_twilio_status(form.get("CallStatus", ""))
+    if attempt.status not in {"completed", "failed", "cancelled"}:
+        attempt.status = status
+        if status == "failed":
+            attempt.reason = "Twilio call did not complete"
+        db.commit()
     return {"accepted": True}
 
 

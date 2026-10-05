@@ -10,7 +10,8 @@ from .config import settings
 from .core import add_turn, start_session
 from .db import Base, SessionLocal, engine
 from .exotel import ExotelError, place_call
-from .models import CallAttempt, Campaign, Contact, OutboxEvent
+from .models import AuditEvent, CallAttempt, Campaign, Contact, OutboxEvent
+from .twilio_provider import TwilioError, place_call as place_twilio_call
 
 
 logging.basicConfig(level=logging.INFO)
@@ -77,16 +78,30 @@ def process_one() -> bool:
                 # Deterministic simulation gives a useful dashboard without external calls.
                 add_turn(db, session, contact, "yes" if contact.language == "en-IN" else "हाँ")
             else:
-                attempt.provider_sid = place_call(contact.phone, attempt.id)
+                try:
+                    attempt.provider_sid = place_call(contact.phone, attempt.id)
+                except ExotelError as exc:
+                    if not (exc.safe_to_fallback and settings.twilio_fallback_enabled):
+                        raise
+                    attempt.provider_sid = "twilio:" + place_twilio_call(contact.phone, attempt.id)
+                    attempt.reason = "Exotel rejected dial; Twilio fallback selected"
+                    db.add(AuditEvent(action="dial.fallback_twilio", target_id=attempt.id,
+                                      detail="Exotel explicitly rejected the request"))
                 db.commit()
             event.sent_at = datetime.now(ZoneInfo("UTC"))
             db.commit()
         except ExotelError as exc:
-            attempt.status = "failed"
-            attempt.reason = str(exc)[:240]
+            attempt.status = "failed" if exc.safe_to_fallback else "needs_review"
+            attempt.reason = ("Exotel rejected dial" if exc.safe_to_fallback else "Exotel outcome uncertain; check provider before retry")
             event.sent_at = datetime.now(ZoneInfo("UTC"))
             db.commit()
-            logger.error("Attempt %s failed: %s", attempt.id, exc)
+            logger.error("Attempt %s: %s", attempt.id, attempt.reason)
+        except TwilioError:
+            attempt.status = "needs_review"
+            attempt.reason = "Twilio fallback outcome uncertain; check provider before retry"
+            event.sent_at = datetime.now(ZoneInfo("UTC"))
+            db.commit()
+            logger.error("Attempt %s: %s", attempt.id, attempt.reason)
         return True
 
 

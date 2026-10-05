@@ -10,7 +10,9 @@ from .voice_agent import stream_signature
 
 
 class ExotelError(RuntimeError):
-    pass
+    def __init__(self, message: str, *, safe_to_fallback: bool = False):
+        super().__init__(message)
+        self.safe_to_fallback = safe_to_fallback
 
 
 def extract_call_sid(body: str) -> str:
@@ -50,6 +52,8 @@ def place_call(phone: str, attempt_id: str) -> str:
     try:
         with httpx.Client(timeout=10) as client:
             response = client.post(url, data=data, auth=(settings.exotel_api_key, settings.exotel_api_token))
+            if 400 <= response.status_code < 500:
+                raise ExotelError(f"Exotel rejected dial ({response.status_code})", safe_to_fallback=True)
             response.raise_for_status()
     except httpx.HTTPError as exc:
         raise ExotelError(f"Exotel dial failed: {type(exc).__name__}") from exc

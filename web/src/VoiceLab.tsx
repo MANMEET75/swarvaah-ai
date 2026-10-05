@@ -40,6 +40,8 @@ export default function VoiceLab({ onSessionStarted }: { onSessionStarted: () =>
   const audioUrl = useRef<string | null>(null)
   const playbackGeneration = useRef(0)
   const recordTimer = useRef<number | null>(null)
+  const vadFrame = useRef<number | null>(null)
+  const vadContext = useRef<AudioContext | null>(null)
   const bottom = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => { bottom.current?.scrollIntoView({ behavior: 'smooth' }) }, [call?.events.length])
@@ -59,6 +61,8 @@ export default function VoiceLab({ onSessionStarted }: { onSessionStarted: () =>
   }
   useEffect(() => () => {
     if (recordTimer.current) window.clearTimeout(recordTimer.current)
+    if (vadFrame.current) window.cancelAnimationFrame(vadFrame.current)
+    if (vadContext.current) void vadContext.current.close()
     if (recorder.current) recorder.current.onstop = null
     if (recorder.current?.state === 'recording') recorder.current.stop()
     stream.current?.getTracks().forEach(track => track.stop())
@@ -162,7 +166,45 @@ export default function VoiceLab({ onSessionStarted }: { onSessionStarted: () =>
 
   const stopRecording = () => {
     if (recordTimer.current) window.clearTimeout(recordTimer.current)
+    if (vadFrame.current) window.cancelAnimationFrame(vadFrame.current)
+    vadFrame.current = null
+    if (vadContext.current) void vadContext.current.close()
+    vadContext.current = null
     if (recorder.current?.state === 'recording') recorder.current.stop()
+  }
+
+  const watchForSilence = (mic: MediaStream) => {
+    if (!window.AudioContext) return
+    const context = new AudioContext()
+    vadContext.current = context
+    const analyser = context.createAnalyser()
+    analyser.fftSize = 2048
+    context.createMediaStreamSource(mic).connect(analyser)
+    const samples = new Uint8Array(analyser.fftSize)
+    let voiceSince = 0
+    let heardSpeech = false
+    let silentSince = 0
+    const inspect = () => {
+      if (recorder.current?.state !== 'recording') return
+      analyser.getByteTimeDomainData(samples)
+      let energy = 0
+      for (const sample of samples) energy += ((sample - 128) / 128) ** 2
+      const speaking = Math.sqrt(energy / samples.length) > 0.02
+      const now = performance.now()
+      if (speaking) {
+        if (!voiceSince) voiceSince = now
+        if (now - voiceSince >= 180) heardSpeech = true
+        silentSince = 0
+      } else {
+        voiceSince = 0
+        if (heardSpeech) {
+          if (!silentSince) silentSince = now
+          if (now - silentSince >= 900) { stopRecording(); return }
+        }
+      }
+      vadFrame.current = window.requestAnimationFrame(inspect)
+    }
+    vadFrame.current = window.requestAnimationFrame(inspect)
   }
 
   const record = async () => {
@@ -184,6 +226,7 @@ export default function VoiceLab({ onSessionStarted }: { onSessionStarted: () =>
       capture.ondataavailable = event => { if (event.data.size) chunks.push(event.data) }
       capture.onerror = () => { setError('Recording failed. Type your reply instead.'); stopRecording() }
       capture.onstop = async () => {
+        stopRecording()
         mic.getTracks().forEach(track => track.stop())
         stream.current = null
         if (!chunks.length) { setPhase('idle'); setError('No audio was captured. Try again or type your reply.'); return }
@@ -200,8 +243,9 @@ export default function VoiceLab({ onSessionStarted }: { onSessionStarted: () =>
         } finally { setPhase('idle') }
       }
       capture.start()
+      try { watchForSilence(mic) } catch { /* manual stop and 15-second limit remain available */ }
       setPhase('recording')
-      setHint('Recording… press Stop when you finish. Maximum 15 seconds.')
+      setHint('Recording… pauses after you finish speaking. Press Stop anytime; maximum 15 seconds.')
       recordTimer.current = window.setTimeout(stopRecording, 15000)
     } catch (exc) {
       stream.current?.getTracks().forEach(track => track.stop())
