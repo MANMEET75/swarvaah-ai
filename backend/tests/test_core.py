@@ -204,6 +204,39 @@ def test_voice_lab_can_switch_ai_per_turn(monkeypatch):
     assert client.post(url, json={"text": "hello", "conversation_mode": "invalid"}).status_code == 422
 
 
+def test_reschedule_closes_politely_without_claiming_time_changed(monkeypatch):
+    call = client.post("/v1/test-calls", json={"language": "en-IN"}).json()
+    response = client.post(f"/v1/test-calls/{call['id']}/turn", json={
+        "text": "Can we reschedule it at eleven am? Is it possible?",
+        "conversation_mode": "deterministic",
+    })
+    assert response.status_code == 200
+    result = response.json()
+    assert result["outcome"] == "reschedule_requested"
+    assert result["action"] == "reschedule_request"
+    assert result["call"]["status"] == "ended"
+    assert "has not changed yet" in result["reply"]
+    assert result["reply"].endswith("Thank you, and have a good day.")
+    assert result["call"]["events"][-2]["kind"] == "assistant"
+
+    monkeypatch.setattr(conversation, "settings", SimpleNamespace(
+        conversation_mode="sarvam", sarvam_chat_model="sarvam-105b-conversations", sarvam_api_key="test"
+    ))
+    async def model_must_not_answer(_messages):
+        raise AssertionError("The workflow must own a reschedule request")
+    monkeypatch.setattr(conversation, "_model_reply", model_must_not_answer)
+    ai_call = client.post("/v1/test-calls", json={"language": "en-IN"}).json()
+    ai_result = client.post(f"/v1/test-calls/{ai_call['id']}/turn", json={
+        "text": "Can we reschedule it at eleven am?", "conversation_mode": "sarvam",
+    }).json()
+    assert ai_result["reply"] == result["reply"]
+    assert ai_result["model"] is None
+
+    hindi = respond("intro", "समय बदलना है", "hi-IN")
+    assert hindi.outcome == "reschedule_requested"
+    assert hindi.reply.endswith("धन्यवाद, आपका दिन शुभ हो।")
+
+
 def _queued_attempt() -> str:
     with Session(engine) as db:
         contact = Contact(external_id=f"fallback-{uuid4()}", name="Synthetic",

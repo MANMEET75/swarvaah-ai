@@ -31,15 +31,15 @@ def respond(state: str, text: str, language: str = "en-IN") -> Turn:
     if INFORMATIONAL.search(message):
         return Turn("awaiting_intent", None, "ज़रूर, मैं समझा सकती हूँ। आप क्या जानना चाहेंगे?" if hindi else "Of course. What would you like to know?")
     if STOP.search(message) or "कॉल मत" in message or "बंद करो" in message:
-        return Turn("ended", "opted_out", "ठीक है, हम आपको दोबारा कॉल नहीं करेंगे। धन्यवाद।" if hindi else "Understood. We will not call you again. Thank you.", "opt_out")
+        return Turn("ended", "opted_out", "ठीक है, हम आपको दोबारा कॉल नहीं करेंगे। बताने के लिए धन्यवाद। नमस्ते।" if hindi else "Understood. We will not call you again. Thank you for letting me know. Goodbye.", "opt_out")
     if HUMAN.search(message) or "किसी से बात" in message:
-        return Turn("ended", "human_callback", "ज़रूर। हमारी टीम आपसे संपर्क करेगी।" if hindi else "Of course. A person from our team will contact you.", "human_callback")
+        return Turn("ended", "human_callback", "ज़रूर। हमारी टीम आपसे संपर्क करेगी। धन्यवाद, आपका दिन शुभ हो।" if hindi else "Of course. A person from our team will contact you. Thank you, and have a good day.", "human_callback")
     if RESCHEDULE.search(message) or "समय बदल" in message or "बाद में" in message:
-        return Turn("ended", "reschedule_requested", "समय बदलने का अनुरोध दर्ज है। हमारी टीम उपलब्ध समय बताएगी।" if hindi else "I've recorded a reschedule request. Our team will offer available times.", "reschedule_request")
+        return Turn("ended", "reschedule_requested", "समय बदलने का अनुरोध दर्ज कर लिया है। समय अभी बदला नहीं है; हमारी टीम उपलब्ध समय की पुष्टि करेगी। धन्यवाद, आपका दिन शुभ हो।" if hindi else "I've noted your request to reschedule. The time has not changed yet; our team will confirm an available slot. Thank you, and have a good day.", "reschedule_request")
     if YES.search(message) and not re.search(r"\b(?:but|maybe|not sure)\b", message, re.I):
-        return Turn("ended", "confirmed", "धन्यवाद, आपका confirmation दर्ज हो गया है।" if hindi else "Thank you. Your confirmation has been recorded.", "confirm")
+        return Turn("ended", "confirmed", "धन्यवाद, आपका confirmation दर्ज हो गया है। आपका दिन शुभ हो।" if hindi else "Thank you. Your confirmation has been recorded. Have a good day.", "confirm")
     if NO.search(message):
-        return Turn("ended", "declined", "समझ गई। हम इसे confirm नहीं करेंगे।" if hindi else "Understood. I won't mark it as confirmed.", "decline")
+        return Turn("ended", "declined", "समझ गई। हम इसे confirm नहीं करेंगे। धन्यवाद, आपका दिन शुभ हो।" if hindi else "Understood. I won't mark it as confirmed. Thank you for your time. Goodbye.", "decline")
     if state == "ended":
         return Turn("ended", None, "यह बातचीत समाप्त हो गई है।" if hindi else "This conversation has ended.")
     return Turn("awaiting_intent", None, "क्या आप confirm, reschedule, या किसी व्यक्ति से बात करना चाहेंगे?" if hindi else "Would you like to confirm, request a new time, or speak with a person?")
