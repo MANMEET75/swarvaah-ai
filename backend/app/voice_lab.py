@@ -5,10 +5,8 @@ is not added to the call transcript; only accepted text turns are persisted.
 """
 
 import base64
-import ssl
 
 import httpx
-import truststore
 from fastapi import HTTPException
 
 from .config import settings
@@ -19,7 +17,6 @@ SARVAM_URL = "https://api.sarvam.ai"
 
 def _client() -> httpx.AsyncClient:
     return httpx.AsyncClient(
-        verify=truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT),
         timeout=httpx.Timeout(30.0, connect=10.0),
         headers={"api-subscription-key": settings.sarvam_api_key},
     )

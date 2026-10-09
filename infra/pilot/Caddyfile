@@ -1,0 +1,20 @@
+:8080 {
+    @health path /health
+    handle @health {
+        reverse_proxy api:8000
+    }
+
+    @exotel_callback path /v1/webhooks/exotel/*
+    handle @exotel_callback {
+        reverse_proxy api:8000
+    }
+
+    @exotel_media path /ws/exotel/*
+    handle @exotel_media {
+        reverse_proxy gateway:8001
+    }
+
+    handle {
+        respond "Not found" 404
+    }
+}

@@ -13,7 +13,7 @@ class Turn:
 
 YES = re.compile(r"^(?:yes|yeah|yep|confirm|confirmed|okay|ok|sure|haan|han|ha)\b|^(?:हाँ|ठीक|पक्का)(?:\s|$)|\b(?:i confirm|please confirm|i will attend|i'll be there|i will be there)\b", re.I)
 NO = re.compile(r"^(?:no|not now|cancel|nahi|nahin)\b|^नहीं(?:\s|$)|\b(?:i cannot attend|i can't attend|please cancel)\b", re.I)
-RESCHEDULE = re.compile(r"\b(reschedule|change|another time|later|postpone|समय बदल|बाद में)\b", re.I)
+RESCHEDULE = re.compile(r"\b(reschedule|change|another time|new time|different time|new slot|different slot|postpone|move it|shift it|समय बदल|बाद में)\b", re.I)
 HUMAN = re.compile(r"\b(agent|human|person|representative|किसी से बात|इंसान)\b", re.I)
 STOP = re.compile(r"\b(stop calling|do not call|don't call|opt out|unsubscribe|कॉल मत|बंद करो)\b", re.I)
 INFORMATIONAL = re.compile(r"^(?:what (?:does|is)|why|how (?:does|do|can)|explain|tell me|could you explain|can you explain)\b", re.I)

@@ -6,15 +6,18 @@ from typing import Literal
 
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+import httpx
 from pydantic import BaseModel, Field
-from sqlalchemy import desc, select
+from sqlalchemy import desc, func, select, text
 from sqlalchemy.orm import Session
 
 from .config import settings
 from .core import import_csv, launch_campaign, masked_phone, metrics, start_session
 from .conversation import add_conversation_turn
 from .db import Base, engine, get_db
-from .models import AuditEvent, CallAttempt, CallEvent, CallSession, Campaign, Contact
+from .models import AuditEvent, CallAttempt, CallEvent, CallSession, Campaign, Contact, OutboxEvent
+from .pilot_context import FESTIVAL_SALE_DEMO, SAVED_REMINDER
+from .actnoww import SCENARIO as ACTNOWW_SUBSCRIPTION, SCRIPT as ACTNOWW_SCRIPT, CAMPAIGN_NAME as ACTNOWW_CAMPAIGN_NAME
 from .exotel import normalize_status
 from .twilio_provider import normalize_status as normalize_twilio_status, signed_request as twilio_signed_request
 from .voice_lab import synthesize, transcribe
@@ -58,6 +61,11 @@ class TestCallIn(BaseModel):
     name: str = "Ananya"
     reminder_label: str = "your appointment"
     reminder_at: str = "tomorrow at 10:00 AM"
+
+
+class PilotCallIn(BaseModel):
+    scenario: Literal["saved_reminder", "festival_sale_demo", "actnoww_subscription"] = SAVED_REMINDER
+    promotional_consent_confirmed: bool = False
 
 
 class TurnIn(BaseModel):
@@ -114,7 +122,9 @@ def contacts(page: int = Query(1, ge=1), size: int = Query(25, ge=1, le=100), db
     return {"items": [{"id": c.id, "external_id": c.external_id, "name": c.name,
                        "phone": masked_phone(c.phone), "reminder_label": c.reminder_label,
                        "reminder_at": c.reminder_at, "language": c.language,
-                       "consent_source": c.consent_source, "suppressed": c.suppressed} for c in rows],
+                       "consent_source": c.consent_source, "suppressed": c.suppressed,
+                       "pilot_self_test": settings.mode == "pilot" and c.phone == settings.pilot_self_test_phone}
+                      for c in rows],
             "page": page, "size": size}
 
 
@@ -129,6 +139,100 @@ def suppress(contact_id: str, db: Session = Depends(get_db)) -> dict:
     return {"suppressed": True}
 
 
+@app.post("/v1/contacts/{contact_id}/restore-self-test", dependencies=[Depends(authorize)])
+def restore_self_test(contact_id: str, db: Session = Depends(get_db)) -> dict:
+    """Undo a manual pilot suppression of the operator's own test number only."""
+    contact = db.get(Contact, contact_id)
+    if not contact:
+        raise HTTPException(404, "Contact not found")
+    if (settings.mode != "pilot" or not settings.pilot_self_test_phone or
+        contact.phone != settings.pilot_self_test_phone):
+        raise HTTPException(403, "Only the configured self-test number can be restored here")
+    if not contact.consent_source or not contact.consent_at:
+        raise HTTPException(409, "Recorded test-call consent is required")
+    last_suppression = db.scalar(select(AuditEvent).where(
+        AuditEvent.target_id == contact.id,
+        AuditEvent.action.in_(["contact.suppress", "contact.opt_out"])
+    ).order_by(desc(AuditEvent.created_at), desc(AuditEvent.id)).limit(1))
+    if last_suppression and last_suppression.action == "contact.opt_out":
+        raise HTTPException(409, "A caller opt-out requires new documented consent")
+    contact.suppressed = False
+    db.add(AuditEvent(action="contact.restore_self_test", target_id=contact.id,
+                      detail="Operator restored own synthetic test number"))
+    db.commit()
+    return {"suppressed": False}
+
+
+@app.post("/v1/contacts/{contact_id}/pilot-call", dependencies=[Depends(authorize)])
+def pilot_call(contact_id: str, data: PilotCallIn | None = None, db: Session = Depends(get_db)) -> dict:
+    """Queue one contact for a controlled local phone pilot; never launch a whole audience."""
+    if settings.mode != "pilot" or settings.call_mode != "exotel" or not settings.live_dial_enabled:
+        raise HTTPException(403, "Single-contact pilot calls are unavailable in this environment")
+    data = data or PilotCallIn()
+    from datetime import timezone
+    from zoneinfo import ZoneInfo
+
+    now_utc = datetime.now(timezone.utc)
+    hour = now_utc.astimezone(ZoneInfo("Asia/Kolkata")).hour
+    if not 9 <= hour < 21:
+        raise HTTPException(409, "Pilot calls are permitted only from 09:00 to 21:00 IST")
+    try:
+        response = httpx.get(f"{settings.public_base_url.rstrip('/')}/health", timeout=5)
+        response.raise_for_status()
+        if response.json().get("mode") != "pilot":
+            raise ValueError("Public route does not reach the pilot API")
+    except (httpx.HTTPError, ValueError):
+        raise HTTPException(503, "Public phone gateway is unavailable") from None
+    # Serialize the single-call admission check across concurrent UI requests.
+    if db.bind and db.bind.dialect.name == "postgresql":
+        db.execute(text("SELECT pg_advisory_xact_lock(76294701)"))
+    contact = db.get(Contact, contact_id)
+    if not contact:
+        raise HTTPException(404, "Contact not found")
+    if contact.suppressed or not contact.consent_source or not contact.consent_at:
+        raise HTTPException(409, "Contact is suppressed or lacks recorded consent")
+    if data.scenario == FESTIVAL_SALE_DEMO and contact.phone != settings.pilot_self_test_phone:
+        raise HTTPException(403, "Synthetic brand scenario is restricted to the configured self-test phone")
+    if data.scenario == ACTNOWW_SUBSCRIPTION:
+        if contact.phone != settings.pilot_self_test_phone:
+            raise HTTPException(403, "Actnoww pilot calls are restricted to the configured self-test phone")
+        if not data.promotional_consent_confirmed:
+            raise HTTPException(409, "Confirm this number opted in to the Actnoww promotional call")
+    active = db.scalar(select(func.count()).select_from(CallAttempt).where(
+        CallAttempt.status.in_(["queued", "dialing", "connected"]))) or 0
+    if active:
+        raise HTTPException(409, "Another call is queued or active; finish it before starting a pilot call")
+    if data.scenario == ACTNOWW_SUBSCRIPTION:
+        campaign = db.scalar(select(Campaign).where(Campaign.name == ACTNOWW_CAMPAIGN_NAME,
+                                                    Campaign.script == ACTNOWW_SCRIPT,
+                                                    Campaign.status == "draft"))
+        if not campaign:
+            raise HTTPException(409, "Create the Actnoww campaign draft before calling")
+        next_number = (db.scalar(select(func.max(CallAttempt.attempt_number)).where(
+            CallAttempt.campaign_id == campaign.id, CallAttempt.contact_id == contact.id)) or 0) + 1
+    else:
+        campaign = Campaign(name=f"Pilot call · {contact.external_id}", status="active",
+                            language=contact.language, max_concurrent=1,
+                            start_hour=9, end_hour=21, retry_limit=0, budget_inr=100.0)
+        db.add(campaign)
+        db.flush()
+        next_number = 1
+    attempt = CallAttempt(campaign_id=campaign.id, contact_id=contact.id,
+                          attempt_number=next_number,
+                          idempotency_key=f"pilot:{campaign.id}:{contact.id}:{next_number}")
+    db.add(attempt)
+    db.flush()
+    db.add(OutboxEvent(kind="dial_requested", attempt_id=attempt.id,
+                       payload=json.dumps({"attempt_id": attempt.id, "scenario": data.scenario})))
+    db.add(AuditEvent(action="pilot.call_queued", target_id=attempt.id,
+                      detail=f"contact_id={contact.id};scenario={data.scenario}"))
+    if data.scenario == ACTNOWW_SUBSCRIPTION:
+        db.add(AuditEvent(action="consent.promotional_self_test", target_id=contact.id,
+                          detail=f"Actnoww operator confirmation;attempt_id={attempt.id}"))
+    db.commit()
+    return {"attempt_id": attempt.id, "status": "queued"}
+
+
 @app.post("/v1/campaigns", dependencies=[Depends(authorize)])
 def create_campaign(data: CampaignIn, db: Session = Depends(get_db)) -> dict:
     if data.language not in {"hi-IN", "en-IN"} or data.end_hour <= data.start_hour:
@@ -141,10 +245,55 @@ def create_campaign(data: CampaignIn, db: Session = Depends(get_db)) -> dict:
     return campaign_json(campaign)
 
 
+@app.post("/v1/campaigns/actnoww-draft", dependencies=[Depends(authorize)])
+def create_actnoww_draft(db: Session = Depends(get_db)) -> dict:
+    """Create the named campaign without launching a marketing audience."""
+    existing = db.scalar(select(Campaign).where(Campaign.name == ACTNOWW_CAMPAIGN_NAME,
+                                                 Campaign.script == ACTNOWW_SCRIPT,
+                                                 Campaign.status == "draft"))
+    if existing:
+        return campaign_json(existing)
+    campaign = Campaign(name=ACTNOWW_CAMPAIGN_NAME, script=ACTNOWW_SCRIPT, status="draft",
+                        language="en-IN", voice="priya", start_hour=9, end_hour=21,
+                        max_concurrent=1, retry_limit=0, budget_inr=100)
+    db.add(campaign)
+    db.flush()
+    db.add(AuditEvent(action="campaign.create", target_id=campaign.id,
+                      detail="Actnoww single-contact promotional pilot; no broad launch"))
+    db.commit()
+    return campaign_json(campaign)
+
+
 @app.get("/v1/campaigns", dependencies=[Depends(authorize)])
 def campaigns(db: Session = Depends(get_db)) -> dict:
     rows = db.scalars(select(Campaign).order_by(desc(Campaign.created_at)).limit(100)).all()
     return {"items": [campaign_json(c) for c in rows]}
+
+
+@app.get("/v1/campaigns/{campaign_id}/metrics", dependencies=[Depends(authorize)])
+def campaign_metrics(campaign_id: str, db: Session = Depends(get_db)) -> dict:
+    campaign = db.get(Campaign, campaign_id)
+    if not campaign:
+        raise HTTPException(404, "Campaign not found")
+    attempts = db.scalars(select(CallAttempt).where(CallAttempt.campaign_id == campaign_id)).all()
+    sessions = db.scalars(select(CallSession).where(
+        CallSession.attempt_id.in_([a.id for a in attempts]))).all() if attempts else []
+    connected = len(sessions)
+    counts: dict[str, int] = {}
+    for session in sessions:
+        if session.outcome:
+            counts[session.outcome] = counts.get(session.outcome, 0) + 1
+    counts["no_answer"] = sum(1 for a in attempts if a.reason and "no-answer" in a.reason.lower())
+    return {
+        "campaign_id": campaign_id, "attempts": len(attempts), "connected": connected,
+        "outcomes": counts,
+        "interested_parent_rate": (counts.get("interested", 0) + counts.get("subscription_requested", 0)) / connected if connected else None,
+        "qualified_subscription_intent_rate": counts.get("subscription_requested", 0) / connected if connected else None,
+        "opt_out_rate": counts.get("do_not_call", 0) / connected if connected else None,
+        "completed_subscriptions": None,
+        "callback_conversion_rate": None,
+        "note": "Purchase completion and callback conversion require verified external events."
+    }
 
 
 @app.post("/v1/campaigns/{campaign_id}/launch", dependencies=[Depends(authorize)])
@@ -152,6 +301,8 @@ def launch(campaign_id: str, db: Session = Depends(get_db)) -> dict:
     campaign = db.get(Campaign, campaign_id)
     if not campaign:
         raise HTTPException(404, "Campaign not found")
+    if campaign.script == ACTNOWW_SCRIPT:
+        raise HTTPException(403, "Actnoww is limited to a consent-confirmed self-test call")
     try:
         return launch_campaign(db, campaign)
     except ValueError as exc:
@@ -292,7 +443,7 @@ async def exotel_callback(secret: str, request: Request, db: Session = Depends(g
     if not attempt:
         raise HTTPException(404, "Unknown call SID")
     attempt.status = normalize_status(str(data.get("Status") or data.get("CallStatus") or ""))
-    attempt.reason = str(data.get("FailureReason") or "")[:240] or None
+    attempt.reason = str(data.get("FailureReason") or data.get("Status") or data.get("CallStatus") or "")[:240] or None
     db.commit()
     return {"accepted": True}
 

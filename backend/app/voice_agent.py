@@ -16,16 +16,31 @@ from .config import settings
 from .core import start_session
 from .conversation import add_conversation_turn
 from .db import SessionLocal
-from .models import CallAttempt, CallEvent, CallSession, Contact
+from .models import CallAttempt, CallEvent, CallSession, Contact, OutboxEvent
+from .media_metrics import MonitoredWebSocket
+from .pilot_context import FESTIVAL_SALE_DEMO, SAVED_REMINDER, greeting as sale_demo_greeting
+from .actnoww import SCENARIO as ACTNOWW_SUBSCRIPTION, greeting as actnoww_greeting
 from .twilio_provider import signed_request as twilio_signed_request
 
 
 log = logging.getLogger("swarvaah.voice")
+log.setLevel(logging.INFO)
 app = FastAPI(title="Swarvaah AI media gateway")
 
 
 def stream_signature(attempt_id: str) -> str:
     return hmac.new(settings.exotel_callback_secret.encode(), attempt_id.encode(), hashlib.sha256).hexdigest()
+
+
+def _scenario_for_attempt(db, attempt_id: str) -> str:
+    event = db.scalar(select(OutboxEvent).where(OutboxEvent.attempt_id == attempt_id))
+    if not event:
+        return SAVED_REMINDER
+    try:
+        scenario = json.loads(event.payload).get("scenario")
+    except (ValueError, TypeError, AttributeError):
+        return SAVED_REMINDER
+    return scenario if scenario in {FESTIVAL_SALE_DEMO, ACTNOWW_SUBSCRIPTION} else SAVED_REMINDER
 
 
 def _complete_disconnected(session_id: str) -> None:
@@ -39,7 +54,7 @@ def _complete_disconnected(session_id: str) -> None:
 
 
 async def _run_pipeline(websocket: WebSocket, session_id: str, greeting_text: str,
-                        language: str, serializer) -> None:
+                        language: str, serializer, scenario: str = SAVED_REMINDER) -> None:
     from pipecat.audio.vad.silero import SileroVADAnalyzer
     from pipecat.audio.vad.vad_analyzer import VADParams
     from pipecat.frames.frames import TextFrame, TranscriptionFrame, TTSSpeakFrame
@@ -65,7 +80,7 @@ async def _run_pipeline(websocket: WebSocket, session_id: str, greeting_text: st
                     call = db.get(CallSession, session_id)
                     person = db.get(Contact, call.contact_id) if call else None
                     if call and person and call.status != "ended":
-                        turn = await add_conversation_turn(db, call, person, frame.text)
+                        turn = await add_conversation_turn(db, call, person, frame.text, scenario=scenario)
                         await self.push_frame(TTSSpeakFrame(turn["reply"]))
                 return
             if not isinstance(frame, TextFrame):
@@ -76,15 +91,15 @@ async def _run_pipeline(websocket: WebSocket, session_id: str, greeting_text: st
         audio_in_sample_rate=16000, audio_out_sample_rate=16000,
     ))
     vad = VADProcessor(vad_analyzer=SileroVADAnalyzer(
-        params=VADParams(confidence=0.7, start_secs=0.2, stop_secs=0.6, min_volume=0.6)))
+        params=VADParams(confidence=0.7, start_secs=0.2, stop_secs=0.2, min_volume=0.6)))
     stt = SarvamRealtimeSTTService(api_key=settings.sarvam_api_key,
         settings=SarvamRealtimeSTTService.Settings(language_code="auto", mode="codemix", stream_type="fast"))
     turns = UserTurnProcessor(user_turn_strategies=UserTurnStrategies(
         start=[VADUserTurnStartStrategy(enable_interruptions=True)],
-        stop=[SpeechTimeoutUserTurnStopStrategy(user_speech_timeout=0.6, wait_for_transcript=True)]))
+        stop=[SpeechTimeoutUserTurnStopStrategy(user_speech_timeout=0.4, wait_for_transcript=True)]))
     tts = SarvamTTSService(api_key=settings.sarvam_api_key,
         settings=SarvamTTSService.Settings(model="bulbul:v3", voice="priya",
-            language=Language.HI if language == "hi-IN" else Language.EN, min_buffer_size=20))
+            language=Language.HI if language == "hi-IN" else Language.EN, min_buffer_size=50))
     worker = PipelineWorker(Pipeline([transport.input(), vad, stt, turns, ReminderProcessor(), tts, transport.output()]),
                             params=PipelineParams(enable_metrics=True, enable_usage_metrics=True))
     runner = WorkerRunner()
@@ -101,24 +116,31 @@ async def _run_pipeline(websocket: WebSocket, session_id: str, greeting_text: st
     await runner.run()
 
 
-@app.websocket("/ws/exotel")
-async def exotel_stream(websocket: WebSocket) -> None:
-    attempt_id = websocket.query_params.get("attempt_id", "")
-    signature = websocket.query_params.get("sig", "")
+@app.websocket("/ws/exotel/{attempt_id}/{signature}")
+async def exotel_stream(websocket: WebSocket, attempt_id: str, signature: str) -> None:
     if not settings.exotel_callback_secret or not hmac.compare_digest(signature, stream_signature(attempt_id)):
+        log.warning("Exotel stream rejected: invalid signature (attempt ID present: %s, signature present: %s)",
+                    bool(attempt_id), bool(signature))
         await websocket.close(code=1008)
         return
     with SessionLocal() as db:
         attempt = db.get(CallAttempt, attempt_id)
         contact = db.get(Contact, attempt.contact_id) if attempt else None
         if not attempt or not contact or contact.suppressed or attempt.status not in {"dialing", "connected"}:
+            log.warning("Exotel stream rejected: attempt unavailable (exists: %s, contact exists: %s, "
+                        "suppressed: %s, status: %s)", bool(attempt), bool(contact),
+                        bool(contact.suppressed) if contact else None, attempt.status if attempt else None)
             await websocket.close(code=1008)
             return
         session = db.scalar(select(CallSession).where(CallSession.attempt_id == attempt_id))
         if session:
+            log.warning("Exotel stream rejected: session already exists")
             await websocket.close(code=1008)
             return
-        session = start_session(db, contact, attempt)
+        scenario = _scenario_for_attempt(db, attempt_id)
+        initial = (sale_demo_greeting(contact.name, contact.language) if scenario == FESTIVAL_SALE_DEMO else
+                   actnoww_greeting(contact.name, contact.language) if scenario == ACTNOWW_SUBSCRIPTION else None)
+        session = start_session(db, contact, attempt, greeting_override=initial)
         session_id = session.id
         greeting_text = db.scalar(select(CallEvent.text).where(CallEvent.session_id == session_id, CallEvent.kind == "assistant"))
         language = contact.language
@@ -144,7 +166,12 @@ async def exotel_stream(websocket: WebSocket) -> None:
         from pipecat.serializers.exotel import ExotelFrameSerializer
         serializer = ExotelFrameSerializer(stream_sid=stream_sid,
             params=ExotelFrameSerializer.InputParams(exotel_sample_rate=exotel_sample_rate))
-        await _run_pipeline(websocket, session_id, greeting_text, language, serializer)
+        monitored = MonitoredWebSocket(websocket, exotel_sample_rate,
+                                       report=lambda summary: log.warning("Exotel outbound media timing: %s", summary))
+        try:
+            await _run_pipeline(monitored, session_id, greeting_text, language, serializer, scenario)
+        finally:
+            log.warning("Exotel outbound media timing final: %s", monitored.summary())
     except WebSocketDisconnect:
         pass
     except Exception:
@@ -194,7 +221,10 @@ async def twilio_stream(websocket: WebSocket) -> None:
                 attempt.status not in {"dialing", "connected"}):
                 await websocket.close(code=1008)
                 return
-            session = start_session(db, contact, attempt)
+            scenario = _scenario_for_attempt(db, attempt_id)
+            initial = (sale_demo_greeting(contact.name, contact.language) if scenario == FESTIVAL_SALE_DEMO else
+                       actnoww_greeting(contact.name, contact.language) if scenario == ACTNOWW_SUBSCRIPTION else None)
+            session = start_session(db, contact, attempt, greeting_override=initial)
             session_id = session.id
             greeting = db.scalar(select(CallEvent.text).where(
                 CallEvent.session_id == session_id, CallEvent.kind == "assistant"))
@@ -203,7 +233,7 @@ async def twilio_stream(websocket: WebSocket) -> None:
         from pipecat.serializers.twilio import TwilioFrameSerializer
         serializer = TwilioFrameSerializer(stream_sid=stream_sid, call_sid=call_sid,
             account_sid=settings.twilio_account_sid, auth_token=settings.twilio_auth_token)
-        await _run_pipeline(websocket, session_id, greeting, language, serializer)
+        await _run_pipeline(websocket, session_id, greeting, language, serializer, scenario)
     except WebSocketDisconnect:
         pass
     except Exception:

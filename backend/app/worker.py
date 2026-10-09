@@ -11,6 +11,8 @@ from .core import add_turn, start_session
 from .db import Base, SessionLocal, engine
 from .exotel import ExotelError, place_call
 from .models import AuditEvent, CallAttempt, Campaign, Contact, OutboxEvent
+from .actnoww import SCRIPT as ACTNOWW_SCRIPT, SCENARIO as ACTNOWW_SUBSCRIPTION
+import json
 from .twilio_provider import TwilioError, place_call as place_twilio_call
 
 
@@ -61,6 +63,18 @@ def process_one() -> bool:
             event.sent_at = datetime.now(ZoneInfo("UTC"))
             db.commit()
             return True
+        if campaign.script == ACTNOWW_SCRIPT:
+            try:
+                authorized_pilot = json.loads(event.payload).get("scenario") == ACTNOWW_SUBSCRIPTION
+            except (ValueError, TypeError, AttributeError):
+                authorized_pilot = False
+            if (not authorized_pilot or settings.mode != "pilot" or
+                contact.phone != settings.pilot_self_test_phone):
+                attempt.status = "suppressed"
+                attempt.reason = "Actnoww pilot restriction"
+                event.sent_at = datetime.now(ZoneInfo("UTC"))
+                db.commit()
+                return True
         hour = datetime.now(ZoneInfo("Asia/Kolkata")).hour
         if not campaign.start_hour <= hour < campaign.end_hour and settings.call_mode == "exotel":
             return False

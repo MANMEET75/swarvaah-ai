@@ -2,7 +2,7 @@
 
 **A careful outbound AI calling workspace for India.** Import consented contacts, configure Hindi or English service reminders, rehearse a conversation in the browser, and monitor attempts from one console. The name evokes *swar* (voice) and *vaah* (carrying it forward).
 
-> **Status: working local proof of concept.** The default configuration only simulates calls. Exotel and optional Twilio phone paths are implemented but have not been exercised against live accounts or real phone audio. Do not use this revision with customer data or production traffic. See [production gates](docs/production-gates.md).
+> **Status: local phone pilot.** The default configuration still simulates calls. A controlled Exotel outbound call to an approved self-test number connected and carried a conversational exchange on 9 October 2026. The recipient reported clear dialogue with occasional audio breaks; this is not a production latency, reliability, or scale validation. Twilio fallback has only been tested with mocks. See [production gates](docs/production-gates.md) before customer traffic.
 
 ## What works today
 
@@ -10,7 +10,8 @@
 - FastAPI `/v1` control API with CSV validation, contact deduplication and suppression, campaign launch/pause/stop, test conversations, call search, and outcome correction.
 - PostgreSQL backed contacts, call attempts, sessions, events, audit trail, and transactional outbox; Redis dial rate limit in the worker.
 - Optional multi-turn free-text dialogue through Sarvam `sarvam-105b-conversations`. The deterministic workflow still owns confirmation, decline, reschedule request, human callback request, and durable opt-out.
-- Exotel Connect Voice AI dial adapter, optional Twilio fallback, and a shared WebSocket media pipeline using Silero VAD, Pipecat, Sarvam real-time STT, and Bulbul v3 TTS. Phone paths require a controlled pilot.
+- Exotel Connect Voice AI dial adapter, optional Twilio fallback, and a shared WebSocket media pipeline using Silero VAD, Pipecat, Sarvam real-time STT, and Bulbul v3 TTS. The Exotel path completed a controlled self-test call; Twilio remains unverified on a real phone call.
+- Single-contact local pilot controls, a synthetic sale scenario, and a restricted real Actnoww subscription campaign draft with separate dialogue and intent outcomes.
 - Direction-neutral `CallSession` schema; inbound number acquisition and routing remain a later release.
 
 ## Product preview
@@ -23,12 +24,14 @@ The screenshot shows the local Voice lab. It is a browser rehearsal, so the conv
 
 ![Swarvaah AI architecture showing the local Voice lab, the outbound Exotel and Pipecat phone path, Sarvam speech models, and controls for a 50,000 attempts per day target](docs/images/architecture.png)
 
-The [editable architecture SVG](docs/images/architecture.svg) is included alongside the rendered image. The diagram shows the primary Exotel path; the optional Twilio route now enters the same media pipeline when Exotel explicitly rejects a dial request. Both paths still need a controlled provider pilot.
+The [editable architecture SVG](docs/images/architecture.svg) is included alongside the rendered image. The diagram shows the primary Exotel path; the optional Twilio route enters the same media pipeline when Exotel explicitly rejects a dial request. Exotel has been tested with one approved number; Twilio still needs a controlled provider pilot.
+
+A [landscape architecture overview](docs/images/swarvaah-architecture-linkedin.jpg) summarizes the operator, control, media, model, and scale paths for sharing.
 
 | Path | Speech recognition | Speech output | Current status |
 | --- | --- | --- | --- |
 | Browser Voice lab | Sarvam **Saaras v4 REST**, `codemix` mode. A recorded clip is transcribed and the operator reviews the text before sending it. | Sarvam **Bulbul v3**, `priya` voice. The browser plays audio returned through FastAPI. | Browser audio uses local energy-based silence detection after speech starts, with manual Stop and a 15-second limit. Real browser behavior still needs device testing. |
-| Exotel or Twilio phone gateway | Pipecat `SarvamRealtimeSTTService` defaults to **Saaras v3 Realtime**; configured for `auto` language, `codemix`, and `fast` stream type. | Pipecat `SarvamTTSService` explicitly selects **Bulbul v3**, `priya`. | The shared pipeline uses Silero VAD, a 600 ms speech-stop threshold, and VAD-triggered interruption. Real carrier media, barge-in quality, and end-to-end latency have not been validated. |
+| Exotel or Twilio phone gateway | Pipecat `SarvamRealtimeSTTService` defaults to **Saaras v3 Realtime**; configured for `auto` language, `codemix`, and `fast` stream type. | Pipecat `SarvamTTSService` explicitly selects **Bulbul v3**, `priya`. | The shared pipeline uses Silero VAD and VAD-triggered interruption. An Exotel self-test call worked, with occasional reported audio breaks. Twilio and production latency remain unverified. |
 
 With `CONVERSATION_MODE=sarvam`, both paths use **Sarvam `sarvam-105b-conversations`** for open-ended, contextual replies to non-action turns. The last six exchanges are sent with the known reminder details; the model is told not to invent customer data or claim an action occurred. An explicit confirmation, decline, reschedule request, human callback, or opt-out is handled by the deterministic workflow and recorded by the backend. The model never executes those actions. If the model is unavailable, the workflow provides a bounded fallback reply. `CONVERSATION_MODE=deterministic` disables chat-model calls. The Exotel adapter signs each attempt's stream URL, and the gateway rejects unknown, suppressed, or repeated attempts.
 
@@ -36,7 +39,7 @@ For scale, the control plane records contacts, campaigns, attempts, and an outbo
 
 ### Voice activity and carrier fallback
 
-The browser detects sustained speech, then stops recording after about 900 ms of silence. It still provides manual Stop and a 15-second ceiling. This simple energy detector is suitable for a local rehearsal, but background noise and quiet speech need device testing. On phone calls, Pipecat uses **Silero VAD** before Sarvam STT and a turn processor that can interrupt outgoing speech when the caller starts talking. The configured 600 ms stop interval is a starting point, not a validated latency or turn-quality result.
+The browser detects sustained speech, then stops recording after about 900 ms of silence. It still provides manual Stop and a 15-second ceiling. This simple energy detector is suitable for a local rehearsal, but background noise and quiet speech need device testing. On phone calls, Pipecat uses **Silero VAD** before Sarvam STT and a turn processor that can interrupt outgoing speech when the caller starts talking. The configured VAD stop threshold is 200 ms and the turn processor waits 400 ms after speech; these remain tuning values, not validated latency or turn-quality results.
 
 Exotel remains primary. With `TWILIO_FALLBACK_ENABLED=true`, the worker tries Twilio **only when Exotel returns an explicit HTTP 4xx rejection**. A timeout, 5xx response, or unreadable success response may mean Exotel already accepted the call; the attempt is marked `needs_review` and Twilio is not dialed. This avoids an automatic duplicate call. Twilio also receives only the already-approved contact after the same consent, calling-window, rate, and concurrency checks. The attempt stores a `twilio:`-prefixed call SID, the review detail identifies its provider, Twilio status callbacks are signature-checked, and the WebSocket handshake is signature-checked before media starts. [Twilio's call API](https://www.twilio.com/docs/voice/api/call-resource), [bidirectional Stream protocol](https://www.twilio.com/docs/voice/twiml/stream), and [signature rules](https://www.twilio.com/docs/usage/security) document the wire format.
 
@@ -111,6 +114,29 @@ Do not upload real contact information into the demo. Import returns accepted, u
 
 ## Phone pilot setup
 
+### Local pilot console
+
+The local phone pilot has a separate Compose stack in `compose.pilot.yaml`. The complete [SSH tunnel and local runbook](docs/local-phone-pilot-console.md) covers the ignored `.env.pilot`, CA bundle, local containers, public HTTPS/WSS address, URL updates, one-contact calling, and shutdown. The core start command is:
+
+```bash
+docker compose -f compose.pilot.yaml --profile dial up -d --build db redis api gateway edge web worker
+```
+
+Open [http://localhost:5173](http://localhost:5173). In **Contacts**, select the context for the next call, choose one opted-in contact, and click **Call once**. Confirm the paid test call, then watch **Live calls** and **Review**. The synthetic Vijay Sales scenario is restricted to the configured self-test phone. The pilot queues only the selected contact, blocks overlapping calls, checks the 09:00–21:00 IST window, and requires the public HTTPS route to answer. The API key stays in the local Vite proxy. The broad campaign **Launch** button is hidden in pilot mode. After any tunnel hostname change, update both public URLs in `.env.pilot` and **recreate** the API, gateway, and worker containers; a simple restart does not reload Compose environment values. See the [runbook](docs/local-phone-pilot-console.md).
+
+### Actnoww subscription campaign
+
+The **Actnoww Kids Learning Subscription** campaign is a real, single-contact promotional pilot, separate from the synthetic sale demo and service reminder. The operator stated that Actnoww helps young children learn ABCs and early concepts with engaging activities, and that one course costs ₹999. No course name, duration, trial, discount, refund term, checkout URL, or approved payment process has been supplied. The assistant must not invent these details or claim a subscription was completed.
+
+1. In **Campaigns**, click **Create Actnoww draft**. This creates the named draft without dialing anyone.
+2. In **Contacts**, select **Actnoww Kids Learning Subscription** as the call context. The pilot permits only the configured own number (`PILOT_SELF_TEST_PHONE`); import or review that contact and ensure it is not suppressed.
+3. Click **Call once** on your own contact and confirm promotional consent for this call. The API records that confirmation in the audit trail. This queues one live call through the configured provider and consumes credits. No call is placed by creating the draft.
+4. Review the transcript and outcome in **Review**. `GET /v1/campaigns/{id}/metrics` reports connected calls, interest, subscription requests, opt-outs, and no answers. A subscription request is intent only. Completed subscriptions and callback conversion remain unavailable until an approved checkout integration and confirmed callback events exist.
+
+The assistant introduces itself as AI, asks whether the parent has time, explores age range and learning needs, handles objections without pressure, and honors a do-not-call request by suppressing the contact. It does not collect children's sensitive data or card details. Broad launch of this campaign is disabled; additional recipients require purpose-specific promotional consent and a reviewed calling route.
+
+### Production-oriented phone pilot prerequisites
+
 1. Obtain a properly provisioned Exotel Connect Voice AI account and a caller ID permitted for the service-reminder use case. Confirm its API schema, outbound rate, simultaneous call and stream limits, callback behavior, and commercial terms with Exotel.
 2. Obtain Sarvam access for realtime STT and Bulbul v3 streaming TTS. Confirm India processing and storage terms, concurrent streams, permitted usage, and expected languages/voices.
 3. Deploy the API and gateway with TLS in India. Exotel must reach a public `wss://` endpoint; a local `localhost` URL will not work. Use an India-region PostgreSQL and Redis service. Configure monitoring, backup, retention, and access controls before real data.
@@ -131,6 +157,8 @@ The same gateway must expose `/ws/twilio` and the control API must expose `/v1/w
 
 For AI dialogue on the phone path, set `CONVERSATION_MODE=sarvam` on the gateway as well as the API. The same conversation service is used after realtime transcription. Model calls are currently non-streaming and can add several seconds; the end-to-end latency target has **not** been met or measured. Streaming responses, interruption handling, action-quality evaluation, and cost limits must be validated in the controlled pilot. See [production gates](docs/production-gates.md) before any customer pilot.
 
+For a persistent HTTPS/WSS media address during a controlled one-number test, use the [stable gateway pilot guide](docs/stable-gateway-pilot.md) and `compose.gateway.yaml` on an approved public host. The gateway now logs outbound audio packet timing without retaining the audio in logs. Compare Voice Lab, 8 kHz gateway output, and phone playback before attributing breaks to a provider. The free SSH tunnel is not a reliable media endpoint.
+
 ## Configuration
 
 Copy `.env.example` for all available settings. The API has a demo mode with no login so it must bind only to a trusted local environment. The non-demo API uses a single API key; the React client must **not** contain that key. A real operator deployment needs an identity provider, sessions, role enforcement, CSRF protections, and a server-side frontend proxy. The current console is for local evaluation.
@@ -143,7 +171,7 @@ cd ../web && npm ci && npm run build
 docker compose config --quiet
 ```
 
-Tests cover CSV admission/deduplication, transactional campaign queueing, opt-out, invalid imports, multi-turn AI dialogue, explicit-rejection fallback, uncertain-outcome protection, Twilio TwiML, signed callbacks and media handshakes, and construction of the Pipecat VAD and turn processors. The real Sarvam chat endpoint was exercised previously with two synthetic local Voice lab turns. Neither carrier's phone path nor browser silence detection has been verified on real audio yet. CI installs the voice dependencies and runs Python tests, TypeScript build, and a secret scan.
+Tests cover CSV admission/deduplication, transactional campaign queueing, Actnoww draft restrictions and opt-out, invalid imports, multi-turn AI dialogue, explicit-rejection fallback, uncertain-outcome protection, Twilio TwiML, signed callbacks and media handshakes, and construction of the Pipecat VAD and turn processors. The Sarvam chat endpoint was exercised in local Voice lab turns, and one controlled Exotel self-test call completed. Twilio's real phone path, broad browser-device behavior, production latency, and scale remain unverified. CI installs the voice dependencies and runs Python tests, TypeScript build, and a secret scan.
 
 ## Capacity and cost
 

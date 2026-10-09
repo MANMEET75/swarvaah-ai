@@ -107,12 +107,14 @@ def launch_campaign(db: Session, campaign: Campaign) -> dict:
     return {"queued": queued, "status": campaign.status}
 
 
-def start_session(db: Session, contact: Contact, attempt: CallAttempt | None = None) -> CallSession:
+def start_session(db: Session, contact: Contact, attempt: CallAttempt | None = None,
+                  greeting_override: str | None = None) -> CallSession:
     session = CallSession(attempt_id=attempt.id if attempt else None, contact_id=contact.id,
                           direction="outbound", language=contact.language)
     db.add(session)
     db.flush()
-    db.add(CallEvent(session_id=session.id, kind="assistant", text=greeting(contact.name, contact.reminder_label, contact.reminder_at, contact.language)))
+    db.add(CallEvent(session_id=session.id, kind="assistant", text=greeting_override or greeting(
+        contact.name, contact.reminder_label, contact.reminder_at, contact.language)))
     if attempt:
         attempt.status = "connected"
     db.commit()

@@ -1,4 +1,8 @@
 .env
+.DS_Store
+.env.pilot
+.env.gateway
+.pilot/
 .venv/
 __pycache__/
 .pytest_cache/

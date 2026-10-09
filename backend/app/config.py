@@ -14,6 +14,7 @@ class Settings:
     admin_api_key: str = os.getenv("ADMIN_API_KEY", "change-this-before-exposing-the-api")
     call_mode: str = os.getenv("CALL_MODE", "simulation")
     public_base_url: str = os.getenv("PUBLIC_BASE_URL", "http://localhost:8000")
+    exotel_api_base_url: str = os.getenv("EXOTEL_API_BASE_URL", "https://api.in.exotel.com")
     exotel_account_sid: str = os.getenv("EXOTEL_ACCOUNT_SID", "")
     exotel_api_key: str = os.getenv("EXOTEL_API_KEY", "")
     exotel_api_token: str = os.getenv("EXOTEL_API_TOKEN", "")
@@ -31,11 +32,15 @@ class Settings:
     max_global_concurrent: int = int(os.getenv("MAX_GLOBAL_CONCURRENT", "20"))
     max_dials_per_minute: int = int(os.getenv("MAX_DIALS_PER_MINUTE", "10"))
     live_dial_enabled: bool = os.getenv("LIVE_DIAL_ENABLED", "false").lower() == "true"
+    pilot_self_test_phone: str = os.getenv("PILOT_SELF_TEST_PHONE", "")
     redis_url: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
     sqs_queue_url: str = os.getenv("SQS_QUEUE_URL", "")
 
 
 settings = Settings()
+
+if settings.exotel_api_base_url not in {"https://api.in.exotel.com", "https://api.exotel.com"}:
+    raise RuntimeError("EXOTEL_API_BASE_URL must be an official Exotel India or Singapore API host")
 
 if settings.conversation_mode not in {"deterministic", "sarvam"}:
     raise RuntimeError("CONVERSATION_MODE must be deterministic or sarvam")
@@ -59,6 +64,8 @@ if settings.mode != "demo":
         settings.exotel_stream_url.startswith("wss://") and settings.public_base_url.startswith("https://")
     ):
         raise RuntimeError("Live calls require public HTTPS and WSS endpoints")
+    if settings.call_mode == "exotel" and "?" in settings.exotel_stream_url:
+        raise RuntimeError("EXOTEL_STREAM_URL must not contain query parameters")
     if settings.call_mode == "exotel" and not settings.live_dial_enabled:
         raise RuntimeError("Set LIVE_DIAL_ENABLED=true only after provider and consent checks")
     if settings.twilio_fallback_enabled and (settings.call_mode != "exotel" or not all(

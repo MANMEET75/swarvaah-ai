@@ -37,9 +37,11 @@ def extract_call_sid(body: str) -> str:
 def place_call(phone: str, attempt_id: str) -> str:
     if settings.call_mode != "exotel" or not settings.live_dial_enabled:
         raise ExotelError("Live dialing is disabled")
-    url = f"https://api.in.exotel.com/v1/Accounts/{quote(settings.exotel_account_sid)}/Calls/connect"
+    url = f"{settings.exotel_api_base_url}/v1/Accounts/{quote(settings.exotel_account_sid)}/Calls/connect"
     callback = f"{settings.public_base_url.rstrip('/')}/v1/webhooks/exotel/{quote(settings.exotel_callback_secret)}"
-    stream_url = settings.exotel_stream_url + ("&" if "?" in settings.exotel_stream_url else "?") + f"attempt_id={quote(attempt_id)}&sig={stream_signature(attempt_id)}"
+    # Connect Voice AI did not preserve query parameters on its WSS handshake in
+    # the phone pilot. Put the signed attempt identity in the URL path instead.
+    stream_url = f"{settings.exotel_stream_url.rstrip('/')}/{quote(attempt_id)}/{stream_signature(attempt_id)}"
     data = {
         "StreamType": "bidirectional",
         "StreamUrl": stream_url,
